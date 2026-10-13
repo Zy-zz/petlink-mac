@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Peer, createIdentity, createInvite, parseInvite, validatePlacement, DEFAULT_RELAYS } = require('./peer.cjs');
 const { clampBounds, placedBounds } = require('./desktop.cjs');
+const { Updater, bundlePath, cleanupInstalledUpdate } = require('./updater.cjs');
 const PET_SIZE = { width: 96, height: 108 };
 const PETS = {
   cat: { kind: 'cat', src: 'pet.svg', name: '像素小猫', pixel: true },
@@ -15,6 +16,12 @@ const profile = app.getPath('userData');
 const configFile = path.join(profile, 'config.json');
 const historyFile = path.join(profile, 'history.json');
 fs.mkdirSync(profile, { recursive: true, mode: 0o700 });
+const installedBundle = bundlePath(process.execPath);
+// Our custom bundle keeps the Electron executable name, so app.isPackaged is false even after installation.
+const installed = path.basename(installedBundle) === 'PetLink.app' &&
+  fs.realpathSync(app.getAppPath()) === fs.realpathSync(path.join(installedBundle, 'Contents/Resources/app'));
+const updater = new Updater({ version: app.getVersion(), bundle: installedBundle, profile,
+  enabled: installed && process.platform === 'darwin' && process.arch === 'arm64', onState: () => broadcast() });
 
 function readJSON(file, fallback) {
   if (!fs.existsSync(file)) return fallback;
@@ -50,7 +57,8 @@ const emptyStatus = { relayConnected: 0, peerOnline: false, paired: false, peerN
   canThrow: false, canQuickActions: false };
 function state() {
   return { name: config.name, invite: config.peerPubkey ? null : config.invite, configured: !!config.invite,
-    status: peer?.status ?? emptyStatus, history, unread, latest, muted, version: app.getVersion(), pet: config.pet || PETS.cat };
+    status: peer?.status ?? emptyStatus, history, unread, latest, muted, version: app.getVersion(), pet: config.pet || PETS.cat,
+    update: updater.state };
 }
 function broadcast() {
   for (const win of [composer, pet, bubble]) if (win && !win.isDestroyed()) {
@@ -206,6 +214,7 @@ async function placeObject(message) {
 app.whenReady().then(() => {
   if (!config) return;
   writeJSON(configFile, config);
+  if (installed) cleanupInstalledUpdate(installedBundle, app.getVersion(), profile);
   composer = makeWindow('index.html', { width: 520, height: 760, minWidth: 460, minHeight: 600,
     title: 'PetLink · 把话交给小伙伴', titleBarStyle: 'hiddenInset', backgroundColor: '#f6f3ed' });
   const area = screen.getPrimaryDisplay().workArea;
@@ -232,16 +241,32 @@ app.whenReady().then(() => {
   tray.setTitle('🐾'); tray.setToolTip('PetLink · 桌面小伙伴');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '打开 PetLink', click: showComposer },
+    { label: '检查更新…', click: () => { showComposer(); updater.check().catch(error => composer.webContents.send('notice', error.message)); } },
     { label: '显示小伙伴', click: () => pet.showInactive() },
     { label: '暂时隐藏小伙伴', click: () => { pet.hide(); bubble.hide(); } },
     { type: 'separator' }, { label: '退出', click: () => app.quit() }
   ]));
   tray.on('click', showComposer);
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'PetLink', submenu: [{ role: 'about' }, { role: 'hide' }, { role: 'quit' }] },
+    { label: 'PetLink', submenu: [{ role: 'about' }, { label: '检查更新…', click: () => {
+      showComposer(); updater.check().catch(error => composer.webContents.send('notice', error.message));
+    } }, { role: 'hide' }, { role: 'quit' }] },
     { role: 'editMenu' }, { role: 'windowMenu' }
   ]));
   handle('get-state', state);
+  handle('check-update', () => updater.check(), w => w === composer);
+  handle('download-update', () => updater.prepare(), w => w === composer);
+  handle('install-update', async () => {
+    if (updater.state.phase !== 'ready') throw new Error('请先下载更新。');
+    const result = await dialog.showMessageBox(composer, { type: 'question', buttons: ['稍后', '重启并更新'],
+      defaultId: 0, cancelId: 0, message: `重启并安装 PetLink ${updater.state.available}？`,
+      detail: '配对信息、桌宠设置和聊天记录会保留。' + (updater.state.signed ? '' :
+        '\n此更新是 GitHub 仓库提供的临时签名包，尚未经过 Apple 公证。仅在信任该来源时安装；macOS 可能再次要求「仍要打开」。') });
+    if (result.response !== 1) return updater.state;
+    await updater.install();
+    setImmediate(() => app.quit());
+    return updater.state;
+  }, w => w === composer);
   handle('set-pet', async (kind) => {
     if (typeof kind === 'string' && Object.hasOwn(PETS, kind)) config.pet = PETS[kind];
     else if (kind === 'custom') {

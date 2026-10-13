@@ -3,6 +3,12 @@ let attachment = null, placement = null, currentState = null, historyKey = '', p
 function notice(text = '') { $('notice').textContent = text; $('notice').hidden = !text; }
 function render(state) {
   currentState = state;
+  const update = state.update || { phase: 'idle' };
+  $('update-status').textContent = { idle: `v${state.version}`, checking: '正在检查更新…', current: `v${state.version} · 已是最新版`,
+    available: `可更新到 v${update.available}`, downloading: `正在下载和验证… ${update.progress || 0}%`,
+    ready: `v${update.available} 已准备好`, installing: '正在重启并更新…', error: update.error }[update.phase];
+  $('update').textContent = update.phase === 'available' ? '下载更新' : update.phase === 'ready' ? '重启并更新' : '检查更新';
+  $('update').disabled = ['checking', 'downloading', 'installing'].includes(update.phase);
   if (state.pet) {
     $('pet-choice').value = state.pet.kind;
     const image = document.querySelector('.hero-pet');
@@ -52,6 +58,13 @@ $('copy').addEventListener('click', async () => { try { await call('copy-invite'
 $('mute').addEventListener('click', () => call('mute').catch(showError));
 $('reset').addEventListener('click', () => call('reset').catch(showError));
 $('cancel-invite').addEventListener('click', () => call('reset').catch(showError));
+$('update').addEventListener('click', async () => {
+  const phase = currentState?.update?.phase;
+  $('update').disabled = true; notice();
+  try { await call(phase === 'available' ? 'download-update' : phase === 'ready' ? 'install-update' : 'check-update'); }
+  catch (error) { showError(error); }
+  finally { if (currentState) render(currentState); }
+});
 $('pet-choice').addEventListener('change', async () => {
   $('pet-choice').disabled = true; notice();
   try { render(await call('set-pet', $('pet-choice').value)); }

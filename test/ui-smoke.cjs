@@ -64,6 +64,17 @@ async function selectTarget(client) {
   relay = await startRelay();
   const alice = await launch('alice');
   let bob = await launch('bob');
+  await alice.app.evaluate(({ app }) => { const version = app.getVersion(); globalThis.originalFetch = globalThis.fetch; globalThis.fetch = async () =>
+    new Response(JSON.stringify({ tag_name: `v${version}`, assets: [] })); });
+  if (process.env.PETLINK_EXECUTABLE) {
+    await alice.page.locator('#update').click();
+    await alice.page.locator('#update-status').getByText('已是最新版', { exact: false }).waitFor();
+  }
+  const updatePet = await windowPage(alice.app, 'pet.html');
+  assert.equal(await updatePet.evaluate(async () => {
+    try { await window.petlink.call('check-update'); return false; } catch { return true; }
+  }), true, 'only the main window may request application updates');
+  await alice.app.evaluate(() => { globalThis.fetch = globalThis.originalFetch; delete globalThis.originalFetch; });
   const smallPet = await windowPage(bob.app, 'pet.html');
   const petWindow = await bob.app.browserWindow(smallPet);
   assert.deepEqual(await petWindow.evaluate(w => w.getSize()), [96, 108]);
