@@ -6,23 +6,23 @@
 
 [下载最新版](https://github.com/Zy-zz/petlink-mac/releases/latest)
 
-本分支是待发布的 **Rust 0.5.0**。当前 GitHub 最新公开安装包仍是 Electron **0.4.0**：
+当前最新版本 **0.5.0（Rust + Tauri 2）**：DMG 约 **3.73 MB**，ZIP 约 **3.35 MB**，安装后的应用约 **9.5 MiB**。相比 Electron 0.4.0 的约 150 MB DMG，下载体积缩小约 **97.5%**。
 
-- [Mac 安装包 DMG](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-mac-arm64.dmg)
-- [Mac 应用 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-mac-arm64.zip)
-- [源码 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-source.zip)
-- [SHA-256 校验文件](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-SHA256SUMS.txt)
+- [Mac 安装包 DMG](https://github.com/Zy-zz/petlink-mac/releases/download/v0.5.0/PetLink-0.5.0-mac-arm64.dmg)
+- [Mac 应用 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.5.0/PetLink-0.5.0-mac-arm64.zip)
+- [源码 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.5.0/PetLink-0.5.0-source.zip)
+- [SHA-256 校验文件](https://github.com/Zy-zz/petlink-mac/releases/download/v0.5.0/PetLink-0.5.0-SHA256SUMS.txt)
 
 ## 安装与使用
 
 当前安装包适用于 **Apple Silicon Mac，macOS 13 或更高版本**。
 
-1. 从上方下载 DMG，打开后把 PetLink 拖入 Applications（应用程序）。升级时先退出旧版，再用新版替换原应用；配对和聊天记录会保留。建议双方安装相同版本；Rust 版兼容现有 0.4.x 通信协议，Toss 功能最低需要 0.2.0。
+1. 从上方下载 DMG，打开后把 PetLink 拖入 Applications（应用程序）。升级时先退出旧版，再用新版替换原应用；配对和聊天记录会保留。**从 Electron 0.4.x 首次升级到 Rust 0.5.0 必须手动替换，不能使用旧版更新按钮。**建议双方安装相同版本；Rust 版兼容现有 0.4.x 通信协议，Toss 功能最低需要 0.2.0。
 2. 双方运行 PetLink。一方填写昵称，点击「邀请一个小伙伴」，复制邀请码发给对方。
 3. 对方填写昵称，选择「我有邀请码」，粘贴后连接。邀请码只应交给想配对的人；第一位加入者会成为固定小伙伴。
 4. 显示「小伙伴在线」后，发送文字、HTTP/HTTPS 链接或附件。对方的小猫旁直接出现气泡，点击「回一句」回复。
 
-公开的 **0.4.0 安装包**使用本地 ad-hoc 签名，未用 Apple Developer ID 签名或公证。从网络下载时，macOS 会提示无法验证安全性。如果信任下载来源，先尝试打开一次，再在「系统设置 → 隐私与安全性」找到 PetLink 并选择「仍要打开」，按提示确认。参见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。无需辅助功能、屏幕录制或远程控制权限。
+**0.5.0 安装包**使用本地 ad-hoc 签名，未用 Apple Developer ID 签名或公证。从网络下载时，macOS 会提示无法验证安全性。如果信任下载来源，先尝试打开一次，再在「系统设置 → 隐私与安全性」找到 PetLink 并选择「仍要打开」，按提示确认。参见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。无需辅助功能、屏幕录制或远程控制权限。
 
 桌宠默认是 96 × 108 的像素小猫，比早期版本更小。聊天窗口的「桌宠」下拉框可切换像素小猫、像素小兔，或选择自己的图片（PNG/JPEG，最大 2 MiB，推荐透明背景 PNG）。自定义图片复制到本机配置，原文件移动或删除不影响桌宠；选择会在重启后保留。
 
@@ -73,9 +73,9 @@
 
 ## Rust 版本与开发验证
 
-本分支将桌面后台迁移到 Rust + Tauri 2，网页界面使用 macOS 自带 WKWebView。应用包不携带 Electron、Chromium 或 Node.js。框架比较、各模块取舍、兼容性和实测证据见 [Rust 重构报告](research/RUST-REFACTOR.md)。
+0.5.0 将桌面后台迁移到 Rust + Tauri 2，网页界面使用 macOS 自带 WKWebView。应用包不携带 Electron、Chromium 或 Node.js。框架比较、各模块取舍、兼容性和实测证据见 [Rust 重构报告](research/RUST-REFACTOR.md)。
 
-从 Electron 0.4.x 首次升级到 Rust 版需要先退出旧应用，再手动拖入 Applications 替换；旧更新器只接受 Electron 执行文件。原有配对、昵称、桌宠设置和历史目录保持兼容。新的安装包尚未发布，不要把旧下载链接当作 Rust 版。
+从 Electron 0.4.x 首次升级到 Rust 版需要先退出旧应用，再手动拖入 Applications 替换；旧更新器只接受 Electron 执行文件。原有配对、昵称、桌宠设置和历史目录保持兼容。上方下载链接均对应 Rust 0.5.0；旧 Electron 安装包仍可在历史 Release 中找到。
 
 需要 Apple Silicon Mac、macOS 13+、Xcode Command Line Tools、Rust 1.90+ 和 Node 22.22+。Node 只供开发和协议测试使用，不进入应用包。
 
