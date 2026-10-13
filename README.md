@@ -8,10 +8,10 @@
 
 当前版本 **0.3.0**：
 
-- [Mac 安装包 DMG](https://github.com/Zy-zz/petlink-mac/releases/download/v0.3.0/PetLink-0.3.0-mac-arm64.dmg)
-- [Mac 应用 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.3.0/PetLink-0.3.0-mac-arm64.zip)
-- [源码 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.3.0/PetLink-0.3.0-source.zip)
-- [SHA-256 校验文件](https://github.com/Zy-zz/petlink-mac/releases/download/v0.3.0/PetLink-0.3.0-SHA256SUMS.txt)
+- [Mac 安装包 DMG](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-mac-arm64.dmg)
+- [Mac 应用 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-mac-arm64.zip)
+- [源码 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-source.zip)
+- [SHA-256 校验文件](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-SHA256SUMS.txt)
 
 ## 安装与使用
 
