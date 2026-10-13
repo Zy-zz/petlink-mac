@@ -1,0 +1,6 @@
+{
+  "identifier": "local",
+  "description": "Local UI can subscribe to backend events. Native operations are checked in Rust per window.",
+  "windows": ["composer", "pet", "bubble", "object-*", "target-*"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

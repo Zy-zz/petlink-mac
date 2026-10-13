@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing new version tag, e.g. v0.4.1 (must match package.json)
+        description: Existing new version tag, e.g. v0.5.0 (must match package.json)
         required: true
         type: string
 
@@ -20,15 +20,23 @@ defaults:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22.22.0'
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - run: npm ci
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: npm test
+      - run: npm run test:interop
+      - run: npm run test:ui
+      - run: npm run build:mac
 
   release:
     if: github.event_name == 'workflow_dispatch'
@@ -86,7 +94,7 @@ jobs:
           echo "MAC_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
           echo 'MAC_NOTARY_PROFILE=petlink-notary' >> "$GITHUB_ENV"
       - run: npm ci
-      - run: npx --no-install install-electron
+      - uses: dtolnay/rust-toolchain@stable
       - run: npm test
       - name: Build, notarize, staple, and assess
         env:
