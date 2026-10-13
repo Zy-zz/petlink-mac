@@ -11,3 +11,7 @@ research/*
 !research/lolping-rea-linux-evidence.json
 !research/rea-window-trace.json
 !research/rea-room-trace.json
+
+src-tauri/target/
+!research/RUST-REFACTOR.md
+src-tauri/gen/

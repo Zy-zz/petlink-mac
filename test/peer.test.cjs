@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomBytes, randomUUID } = require('node:crypto');
 const { finalizeEvent } = require('nostr-tools');
-const { Peer, createIdentity, createInvite, parseInvite, validateMessage } = require('../src/peer.cjs');
+const { Peer, createIdentity, createInvite, parseInvite, validateMessage } = require('./legacy/peer.cjs');
 const { startRelay } = require('./relay.cjs');
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
