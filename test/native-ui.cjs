@@ -10,6 +10,8 @@ const pause = ms => new Promise(r => setTimeout(r, ms));
 async function until(fn, timeout = 15000) { const end = Date.now() + timeout; while (!(await fn())) { if (Date.now() > end) throw Error('Timed out in native UI'); await pause(100); } }
 let sequence = 0;
 function client(profile, relay) {
+  // Readiness belongs to this process, not the previous client's WebView.
+  for (const name of fs.readdirSync(profile)) if (name.startsWith('test-ready-')) fs.unlinkSync(path.join(profile, name));
   const child = spawn(path.join(root, 'src-tauri/target/debug/petlink'), [], { env: { ...process.env, PETLINK_PROFILE: profile, PETLINK_RELAYS: relay, PETLINK_HIDDEN: '1', PETLINK_UI_TEST: '1' } });
   let exited = false, stderr = ''; child.stderr.on('data', d => { stderr = (stderr + d).slice(-20000); }); child.on('exit', () => exited = true);
   async function evaluate(script, label = 'composer') {
