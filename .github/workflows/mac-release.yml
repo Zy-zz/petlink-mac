@@ -1,0 +1,108 @@
+name: macOS release
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing new version tag, e.g. v0.4.1 (must match package.json)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  release:
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+          cache: npm
+      - name: Validate new release tag
+        run: |
+          node -e 'if (process.env.RELEASE_TAG !== `v${require("./package.json").version}`) throw new Error("Tag must match package.json version")'
+          test "$(uname -m)" = arm64
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release already exists; use a new version instead of replacing published assets.'
+            exit 1
+          fi
+      - name: Import signing and notarization credentials
+        env:
+          MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in MAC_CERTIFICATE_P12 MAC_CERTIFICATE_PASSWORD MAC_SIGNING_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              echo "Missing repository secret: $name"
+              exit 1
+            fi
+          done
+          umask 077
+          keychain="$RUNNER_TEMP/petlink-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          echo "::add-mask::$keychain_password"
+          printf '%s' "$MAC_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/petlink-signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/petlink-signing.p12" -k "$keychain" -P "$MAC_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          xcrun notarytool store-credentials petlink-notary --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --keychain "$keychain"
+          echo "MAC_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo 'MAC_NOTARY_PROFILE=petlink-notary' >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: npx --no-install install-electron
+      - run: npm test
+      - name: Build, notarize, staple, and assess
+        env:
+          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+        run: npm run build:mac:release
+      - name: Create verified draft release
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          git archive --format=zip -o "dist/PetLink-$version-source.zip" HEAD
+          cd dist
+          shasum -a 256 "PetLink-$version-mac-arm64.dmg" "PetLink-$version-mac-arm64.zip" "PetLink-$version-source.zip" > "PetLink-$version-SHA256SUMS.txt"
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "PetLink $version" \
+            --notes 'Apple Silicon / macOS 13+. Developer ID signed and Apple notarized; app and DMG tickets stapled and Gatekeeper checks passed. Quit the old app before replacing it in Applications.' \
+            "PetLink-$version-mac-arm64.dmg" "PetLink-$version-mac-arm64.zip" "PetLink-$version-source.zip" "PetLink-$version-SHA256SUMS.txt"
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/petlink-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/petlink-signing.p12"

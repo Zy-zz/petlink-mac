@@ -6,7 +6,7 @@
 
 [下载最新版](https://github.com/Zy-zz/petlink-mac/releases/latest)
 
-当前版本 **0.3.0**：
+当前版本 **0.4.0**：
 
 - [Mac 安装包 DMG](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-mac-arm64.dmg)
 - [Mac 应用 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-mac-arm64.zip)
@@ -17,12 +17,12 @@
 
 当前安装包适用于 **Apple Silicon Mac，macOS 13 或更高版本**。
 
-1. 从上方下载 DMG，打开后把 PetLink 拖入 Applications（应用程序）。升级时先退出旧版，再用新版替换原应用；配对和聊天记录会保留。建议双方都安装 0.3.0，Toss 功能最低需要 0.2.0。
+1. 从上方下载 DMG，打开后把 PetLink 拖入 Applications（应用程序）。升级时先退出旧版，再用新版替换原应用；配对和聊天记录会保留。建议双方都安装 0.4.0，Toss 功能最低需要 0.2.0。
 2. 双方运行 PetLink。一方填写昵称，点击「邀请一个小伙伴」，复制邀请码发给对方。
 3. 对方填写昵称，选择「我有邀请码」，粘贴后连接。邀请码只应交给想配对的人；第一位加入者会成为固定小伙伴。
 4. 显示「小伙伴在线」后，发送文字、HTTP/HTTPS 链接或附件。对方的小猫旁直接出现气泡，点击「回一句」回复。
 
-安装包使用本地 ad-hoc 签名，未用 Apple Developer ID 签名或公证。从网络下载时，macOS 可能要求在「系统设置 → 隐私与安全」选择「仍要打开」。无需辅助功能、屏幕录制或远程控制权限。
+**已发布的 0.4.0 安装包**使用本地 ad-hoc 签名，未用 Apple Developer ID 签名或公证。从网络下载时，macOS 会提示无法验证安全性。如果信任下载来源，先尝试打开一次，再在「系统设置 → 隐私与安全性」找到 PetLink 并选择「仍要打开」，按提示确认。参见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。无需辅助功能、屏幕录制或远程控制权限。
 
 桌宠默认是 96 × 108 的像素小猫，比早期版本更小。聊天窗口的「桌宠」下拉框可切换像素小猫、像素小兔，或选择自己的图片（PNG/JPEG，最大 2 MiB，推荐透明背景 PNG）。自定义图片复制到本机配置，原文件移动或删除不影响桌宠；选择会在重启后保留。
 
@@ -80,6 +80,32 @@ npm run build:mac
 `npm test` 包含真实 WebSocket 中继、身份固定、双向收发、分片、收方确认、重传去重、篡改拒绝、重连和 5 MiB 文件边界，以及拖动/点击事件区分和桌面坐标映射。`test:ui` 启动两个独立 Mac Electron 进程，通过真正的输入框与按钮完成配对和收发，检查气泡、附件保存、链接、HTML 转义、暂停弹出、重启恢复，桌宠缩小、内置桌宠切换、自定义图片与重启保持，以及甩东西的落点选择、确认前不显示、拒绝、确认后图片/文字落点和重复确认拦截。
 
 `test/public-relay.cjs` 是主动公网测试，发送随机测试数据，不使用用户的配对信息；结果保存在 `test-output/public-relay-result.json`。`PETLINK_PROFILE` / `PETLINK_RELAYS` / `PETLINK_HIDDEN` 环境变量只用于隔离测试和指定测试中继。
+
+## 正式 Mac 发布
+
+`npm run build:mac` 继续生成仅供本地开发的 ad-hoc 包。正式分发使用 `npm run build:mac:release`：通过 [Electron 官方签名工具](https://github.com/electron/osx-sign)对嵌套代码签名，启用 Hardened Runtime（强化运行时），提交 Apple 公证并附加公证票据（staple），最后用 Gatekeeper（macOS 门禁）检查应用和 DMG。ZIP 在应用附加票据后生成。缺少凭据、签名、公证或安全检查失败都会中止，不会退回 ad-hoc 签名。
+
+需要先加入 [Apple Developer Program](https://developer.apple.com/programs/)，创建 [Developer ID Application 证书](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/)，并从钥匙串访问导出包含私钥的、带密码的 `.p12`。在仓库 **Settings → Secrets and variables → Actions** 配置以下 Secrets，勿把证书、私钥或密码提交到代码库：
+
+| Secret | 内容 |
+| --- | --- |
+| `MAC_CERTIFICATE_P12` | `.p12` 文件的 Base64 内容 |
+| `MAC_CERTIFICATE_PASSWORD` | 导出 `.p12` 时设置的密码 |
+| `MAC_SIGNING_IDENTITY` | 完整证书名称，如 `Developer ID Application: Your Name (TEAMID)` |
+| `APPLE_ID` | 开发者 Apple 账号邮箱 |
+| `APPLE_APP_SPECIFIC_PASSWORD` | [App 专用密码](https://support.apple.com/zh-cn/102654)，不是账号登录密码 |
+| `APPLE_TEAM_ID` | Apple 开发者团队 ID |
+
+合并发布流程后，更新 `package.json` 和 `package-lock.json` 的版本并推送对应新标签（例如 `v0.4.1`），在 **Actions → macOS release → Run workflow** 输入该标签。流程导入临时钥匙串、验证该标签的测试、签名并公证安装包，生成 SHA-256 校验文件，最后创建 **GitHub Release 草稿**。检查安装包与版本说明后再发布草稿。流程拒绝覆盖已有 Release；凭据会在结束后清理。修改仓库代码不会改变已下载或已发布的 0.4.0 安装包。
+
+本机已有证书时，可先运行 `xcrun notarytool store-credentials petlink-notary` 并交互式填写公证凭据，再构建：
+
+```sh
+MAC_SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
+MAC_NOTARY_PROFILE=petlink-notary npm run build:mac:release
+```
+
+证书和公证配置都在自定义钥匙串时，另设 `MAC_SIGNING_KEYCHAIN` 为该钥匙串路径。
 
 ## REA 分析依据
 

@@ -10,7 +10,8 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "test:ui": "node test/ui-smoke.cjs",
-    "build:mac": "node scripts/build-mac.cjs"
+    "build:mac": "node scripts/build-mac.cjs",
+    "build:mac:release": "node scripts/build-mac.cjs --release"
   },
   "dependencies": {
     "@noble/curves": "2.0.1",
@@ -18,6 +19,7 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@electron/osx-sign": "2.7.1",
     "electron": "44.5.1",
     "playwright-core": "^1.56.0"
   }
