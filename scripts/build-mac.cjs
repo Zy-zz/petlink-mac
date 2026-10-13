@@ -1,11 +1,19 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+async function build() {
 const root = path.resolve(__dirname, '..');
 const pkg = require('../package.json');
 const dist = path.join(root, 'dist');
 const bundle = path.join(dist, 'PetLink.app');
 if (process.platform !== 'darwin') throw new Error('请在 macOS 上构建。');
+if (process.arch !== 'arm64') throw new Error('请在 Apple Silicon Mac 上构建 arm64 安装包。');
+const release = process.argv.includes('--release');
+const identity = process.env.MAC_SIGNING_IDENTITY;
+const profile = process.env.MAC_NOTARY_PROFILE;
+const keychain = process.env.MAC_SIGNING_KEYCHAIN;
+if (release && (!identity || !identity.startsWith('Developer ID Application: ') || !profile))
+  throw new Error('正式构建需要 MAC_SIGNING_IDENTITY（Developer ID Application 证书名称）和 MAC_NOTARY_PROFILE（notarytool 钥匙串配置）。');
 if (!fs.existsSync(path.join(root, 'node_modules/electron/dist/Electron.app'))) throw new Error('请先运行 npm install 和 npx install-electron。');
 fs.mkdirSync(dist, { recursive: true });
 fs.rmSync(bundle, { recursive: true, force: true });
@@ -35,8 +43,31 @@ fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: pkg.n
 fs.copyFileSync(path.join(root, 'package-lock.json'), path.join(appDir, 'package-lock.json'));
 execFileSync('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: appDir, stdio: 'inherit' });
 for (const file of ['LICENSE', 'README.md']) if (fs.existsSync(path.join(root, file))) fs.copyFileSync(path.join(root, file), path.join(appDir, file));
-execFileSync('codesign', ['--force', '--deep', '--sign', '-', bundle], { stdio: 'inherit' });
+if (release) {
+  const { sign } = require('@electron/osx-sign');
+  // osx-sign signs nested Electron code inside out, with Hardened Runtime and Electron entitlements.
+  await sign({ app: bundle, identity, keychain, platform: 'darwin', version: pkg.devDependencies.electron });
+} else {
+  execFileSync('codesign', ['--force', '--deep', '--sign', '-', bundle], { stdio: 'inherit' });
+  console.warn('本地开发包：仅 ad-hoc 签名，未公证；网络下载后 macOS 会要求「仍要打开」。');
+}
 execFileSync('codesign', ['--verify', '--deep', '--strict', bundle]);
+function notarize(artifact) {
+  const credentials = ['--keychain-profile', profile, ...(keychain ? ['--keychain', keychain] : [])];
+  const result = JSON.parse(execFileSync('xcrun', ['notarytool', 'submit', artifact, ...credentials,
+    '--wait', '--timeout', '20m', '--output-format', 'json'], { encoding: 'utf8' }));
+  if (result.status !== 'Accepted') throw new Error(`Apple 公证失败：${result.status}（提交 ${result.id}）。`);
+}
+if (release) {
+  const submission = path.join(dist, 'PetLink-notarization.zip');
+  try {
+    execFileSync('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', bundle, submission]);
+    notarize(submission);
+    execFileSync('xcrun', ['stapler', 'staple', bundle], { stdio: 'inherit' });
+    execFileSync('xcrun', ['stapler', 'validate', bundle], { stdio: 'inherit' });
+    execFileSync('spctl', ['--assess', '--type', 'execute', '--verbose=4', bundle], { stdio: 'inherit' });
+  } finally { fs.rmSync(submission, { force: true }); }
+}
 const archive = path.join(dist, `PetLink-${pkg.version}-mac-arm64.zip`);
 execFileSync('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', bundle, archive]);
 const staging = path.join(dist, 'dmg-stage');
@@ -46,4 +77,14 @@ execFileSync('ditto', [bundle, path.join(staging, 'PetLink.app')]);
 const dmg = path.join(dist, `PetLink-${pkg.version}-mac-arm64.dmg`);
 execFileSync('hdiutil', ['create', '-volname', 'PetLink', '-srcfolder', staging, '-ov', '-format', 'UDZO', dmg], { stdio: 'inherit' });
 fs.rmSync(staging, { recursive: true, force: true });
+if (release) {
+  execFileSync('codesign', ['--force', '--sign', identity, '--timestamp', ...(keychain ? ['--keychain', keychain] : []), dmg], { stdio: 'inherit' });
+  notarize(dmg);
+  execFileSync('xcrun', ['stapler', 'staple', dmg], { stdio: 'inherit' });
+  execFileSync('xcrun', ['stapler', 'validate', dmg], { stdio: 'inherit' });
+  execFileSync('spctl', ['--assess', '--type', 'open', '--context', 'context:primary-signature', '--verbose=4', dmg], { stdio: 'inherit' });
+}
 console.log(`Built ${bundle}\n${dmg}\n${archive}`);
+}
+module.exports = build;
+if (require.main === module) build().catch(error => { console.error(error.message); process.exitCode = 1; });

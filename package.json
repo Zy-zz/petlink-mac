@@ -10,14 +10,18 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "test:ui": "node test/ui-smoke.cjs",
-    "build:mac": "node scripts/build-mac.cjs"
+    "test:update": "node test/update-smoke.cjs",
+    "build:mac": "node scripts/build-mac.cjs",
+    "build:mac:release": "node scripts/build-mac.cjs --release"
   },
   "dependencies": {
+    "@electron-internal/extract-zip": "1.0.5",
     "@noble/curves": "2.0.1",
     "nostr-tools": "^2.17.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@electron/osx-sign": "2.7.1",
     "electron": "44.5.1",
     "playwright-core": "^1.56.0"
   }

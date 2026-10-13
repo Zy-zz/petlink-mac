@@ -3,7 +3,7 @@ contextBridge.exposeInMainWorld('petlink', {
   call: async (channel, value) => {
     if (!['get-state', 'set-pet', 'configure', 'copy-invite', 'send', 'open', 'dismiss', 'mute', 'link', 'save-attachment', 'reset', 'bubble-height',
       'drag-start', 'drag-move', 'drag-end', 'pet-menu', 'quick-action', 'pick-target', 'choose-target', 'cancel-target', 'get-object', 'close-object',
-      'object-height', 'respond-throw'].includes(channel))
+      'object-height', 'respond-throw', 'check-update', 'download-update', 'install-update'].includes(channel))
       throw new Error('未知操作');
     const result = await ipcRenderer.invoke(channel, value);
     if (!result.ok) throw new Error(result.error);
