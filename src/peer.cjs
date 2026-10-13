@@ -15,6 +15,7 @@ const CHUNK = 23000;
 const MAX_PARTS = Math.ceil((MAX_PACKET + 32) * 4 / 3 / CHUNK);
 const STALE_MS = 20000;
 const ACK_MS = 45000;
+const QUICK_ACTIONS = new Set(['heart', 'poop', 'walk']);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const topicFor = secret => createHash('sha256').update(`petlink-v1:${secret}`).digest('hex');
 function validPubkey(value) {
@@ -73,7 +74,12 @@ function validateMessage(input) {
         out.placement || out.attachment) throw new Error('甩东西确认消息无效');
     out.throwDecision = { requestId: d.requestId, accepted: d.accepted };
   }
-  if (!text.trim() && !out.attachment && !out.throwDecision) throw new Error('请输入文字或添加附件');
+  if (input.quickAction !== undefined) {
+    if (!QUICK_ACTIONS.has(input.quickAction) || text.trim() || out.attachment || out.placement || out.throwDecision)
+      throw new Error('快捷互动无效');
+    out.quickAction = input.quickAction;
+  }
+  if (!text.trim() && !out.attachment && !out.throwDecision && !out.quickAction) throw new Error('请输入文字或添加附件');
   if (input.id != null) {
     if (typeof input.id !== 'string' || !UUID.test(input.id)) throw new Error('消息 ID 无效');
     out.id = input.id;
@@ -107,6 +113,7 @@ class Peer extends EventEmitter {
     if (identity.pubkey !== this.invite.hostPubkey && this.peerPubkey !== this.invite.hostPubkey) throw new Error('好友身份与邀请不匹配');
     this.peerName = '';
     this.peerCanThrow = false;
+    this.peerCanQuickActions = false;
     this.lastSeen = 0;
     this.running = false;
     this.sockets = new Map();
@@ -127,7 +134,8 @@ class Peer extends EventEmitter {
     const relayConnected = [...this.sockets.values()].filter(ws => ws.readyState === WebSocket.OPEN).length;
     return { relayConnected,
       peerOnline: this.running && relayConnected > 0 && Date.now() - this.lastSeen < STALE_MS && this.lastSeen > 0,
-      paired: !!this.peerPubkey, peerName: this.peerName, peerPubkey: this.peerPubkey, canThrow: this.peerCanThrow };
+      paired: !!this.peerPubkey, peerName: this.peerName, peerPubkey: this.peerPubkey,
+      canThrow: this.peerCanThrow, canQuickActions: this.peerCanQuickActions };
   }
   start() {
     if (this.running) return;
@@ -197,7 +205,7 @@ class Peer extends EventEmitter {
   }
   hello() {
     if (!this.running || !this.status.relayConnected) return;
-    this.publish({ type: 'hello', name: this.name, target: this.peerPubkey, features: ['throw-v1'], at: Date.now() }, 'hello').catch(error => this.fail(error));
+    this.publish({ type: 'hello', name: this.name, target: this.peerPubkey, features: ['throw-v1', 'quick-v1'], at: Date.now() }, 'hello').catch(error => this.fail(error));
   }
   publish(packet, mode = 'pair', deadline = Infinity) {
     const run = async () => {
@@ -274,6 +282,7 @@ class Peer extends EventEmitter {
         }
         this.peerName = packet.name;
         this.peerCanThrow = Array.isArray(packet.features) && packet.features.includes('throw-v1');
+        this.peerCanQuickActions = Array.isArray(packet.features) && packet.features.includes('quick-v1');
         // Presence is proved by a fresh challenge response, so replayed hello cannot mark a peer online.
         if (this.challenges.size < 8) {
           const challenge = randomUUID();

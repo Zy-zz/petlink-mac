@@ -36,7 +36,9 @@ test('invites and trust-boundary message validation', () => {
   assert.notEqual(parseInvite(createInvite(identity)).secret, parsed.secret);
   for (const invalid of ['', 'PL1.', 'PL1.!!!!', 'PL1.' + Buffer.from('{}').toString('base64url'), invite + '=']) assert.throws(() => parseInvite(invalid));
   assert.deepEqual(validateMessage({ text: 'https://example.com' }), { text: 'https://example.com' });
+  assert.deepEqual(validateMessage({ quickAction: 'heart' }), { text: '', quickAction: 'heart' });
   for (const invalid of [null, [], {}, { text: 42 }, { text: 'x'.repeat(4001) }, { text: 'x', sentAt: 1 },
+    { quickAction: 'wave' }, { text: 'not ephemeral', quickAction: 'heart' },
     { attachment: { name: '../evil', mime: 'image/png', data: 'AAAA' } },
     { attachment: { name: 'file', mime: 'text/plain', data: 'a' } },
     { attachment: { name: 'file', mime: 'text/plain', data: Buffer.alloc(5 * 1024 * 1024 + 1).toString('base64') } },
@@ -60,10 +62,12 @@ test('JSON-persisted identity and pair keys work without native secp256k1 suppor
     assert.equal(parseInvite(invite).hostPubkey, identity.pubkey);
   } finally { ECDH.convertKey = original; }
 });
-test('throw requests and decisions keep their fields through real encrypted relay delivery', async t => {
+test('throw requests, decisions and quick actions keep their fields through encrypted delivery', async t => {
   const { alice, bob } = await pair(t);
   assert.equal(alice.status.canThrow, true);
   assert.equal(bob.status.canThrow, true);
+  assert.equal(alice.status.canQuickActions, true);
+  assert.equal(bob.status.canQuickActions, true);
   const incoming = [];
   bob.on('message', message => incoming.push(message));
   let decision;
@@ -73,8 +77,10 @@ test('throw requests and decisions keep their fields through real encrypted rela
   assert.deepEqual(incoming[0].placement, placement);
   await bob.send({ text: '接住了', throwDecision: { requestId: sent.id, accepted: true } });
   assert.deepEqual(decision.throwDecision, { requestId: sent.id, accepted: true });
+  await alice.send({ quickAction: 'heart' });
+  assert.equal(incoming[1].quickAction, 'heart');
   await bob.publish({ type: 'hello', name: 'Bob', target: alice.identity.pubkey, at: Date.now() }, 'hello');
-  await until(() => !alice.status.canThrow);
+  await until(() => !alice.status.canThrow && !alice.status.canQuickActions);
 });
 
 test('real WebSocket: pin identities, bidirectional text/link/image/file, encrypted fragmentation and dedup', async t => {

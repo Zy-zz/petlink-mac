@@ -12,6 +12,7 @@ function render(state) {
   }
   const connected = state.status.relayConnected > 0;
   const paired = state.status.paired || !!state.status.peerPubkey;
+  document.body.classList.toggle('paired', paired);
   $('setup').hidden = state.configured;
   $('waiting').hidden = !state.configured || paired;
   $('conversation').hidden = !paired;

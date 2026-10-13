@@ -103,6 +103,20 @@ async function selectTarget(client) {
   await bob.page.locator('#invite-input').fill(invite);
   await bob.page.locator('#join-form button').click();
   await Promise.all([online(alice.page), online(bob.page)]);
+  const alicePet = await windowPage(alice.app, 'pet.html');
+  const alicePetWindow = await alice.app.browserWindow(alicePet);
+  await smallPet.evaluate(() => window.petlink.call('quick-action', 'heart'));
+  await alicePet.locator('#effect').getByText('💗').waitFor();
+  assert.equal((await alice.page.evaluate(() => window.petlink.call('get-state'))).history.length, 0, 'quick actions stay out of chat history');
+  const originalPetBounds = await alicePetWindow.evaluate(win => win.getBounds());
+  await smallPet.evaluate(() => window.petlink.call('quick-action', 'walk'));
+  await alicePet.locator('#pet.walking').waitFor();
+  assert.match(await alicePet.locator('#pet img').evaluate(el => getComputedStyle(el).animationName), /walk-cycle/);
+  assert.notEqual((await alicePetWindow.evaluate(win => win.getBounds())).x, originalPetBounds.x);
+  await alicePet.waitForTimeout(2800);
+  assert.equal(await alicePet.locator('#pet').evaluate(el => el.classList.contains('walking')), true, 'stroll remains active at the old finish time');
+  await alicePet.waitForFunction(() => !document.getElementById('pet').classList.contains('walking'), null, { timeout: 8000 });
+  assert.deepEqual(await alicePetWindow.evaluate(win => win.getBounds()), originalPetBounds, 'walk returns the pet to its saved position');
   await send(alice.page, '嘿，今晚一起吃饭吧 🍜\n这个地方：https://example.com/dinner');
   let bubble = await windowPage(bob.app, 'bubble.html');
   await bubble.locator('#content').getByText('嘿，今晚一起吃饭吧 🍜', { exact: false }).waitFor();
@@ -116,6 +130,11 @@ async function selectTarget(client) {
     try { await window.petlink.call('link', 'javascript:alert(1)'); return false; } catch { return true; }
   });
   assert.equal(blocked, true);
+  await bubble.locator('#quick-reply').fill('不用打开主界面也能回你啦。');
+  await bubble.locator('#quick-send').click();
+  await alice.page.locator('#history').getByText('不用打开主界面也能回你啦。').waitFor();
+  await bubble.waitForTimeout(100);
+  assert.equal(await bubbleWindow.evaluate(win => win.isVisible()), false);
   await bob.page.locator('#file-input').setInputFiles({ name: '小纸条.png', mimeType: 'image/png', buffer: pixel });
   await bob.page.locator('#attachment-preview').waitFor({ state: 'visible' });
   await send(bob.page, '好呀，这是给你的小图片。');
@@ -147,10 +166,10 @@ async function selectTarget(client) {
   await Promise.all([online(alice.page), online(bob.page)]);
   const restored = await bob.page.evaluate(() => window.petlink.call('get-state'));
   assert.equal(restored.name, '阿月');
-  assert.equal(restored.history.length, 4);
+  assert.equal(restored.history.length, 5);
   for (const event of oldEvents) relay.inject(event);
   await bob.page.waitForTimeout(250);
-  assert.equal((await bob.page.evaluate(() => window.petlink.call('get-state'))).history.length, 4,
+  assert.equal((await bob.page.evaluate(() => window.petlink.call('get-state'))).history.length, 5,
     'persisted message IDs must prevent redisplay after receiver restart');
   await send(alice.page, '欢迎回来！配对还在，不需要重新输入邀请码。');
   bubble = await windowPage(bob.app, 'bubble.html');
@@ -252,7 +271,8 @@ async function selectTarget(client) {
   fs.writeFileSync(path.join(root, 'ui/icon.png'), Buffer.from(icon, 'base64'));
   fs.writeFileSync(path.join(output, 'ui-result.json'), JSON.stringify({ passed: true,
     checks: ['small pixel pet', 'built-in pet switching', 'custom pet image', 'pet selection persists on restart', 'invalid and oversized pet image rejected',
-      'UI pair and clipboard invite', 'real two-process relay delivery', 'pet bubble always on top', 'clickable link', 'blocked unsafe URL',
+      'UI pair and clipboard invite', 'real two-process relay delivery', 'pet bubble always on top', 'bubble quick reply', 'clickable link', 'blocked unsafe URL',
+      'encrypted pet quick actions', 'walk restores saved pet position',
       'image display', 'attachment save/readback', 'literal HTML message', 'dismiss', 'mute', 'restart retains pair/history', 'restart replay dedup', 'bidirectional reply',
       'Toss button labels', 'desktop target picker', 'no placement before consent', 'reject request', 'consent IPC restricted',
       'original image bytes preserved', 'frameless transparent content', 'close button hidden until hover',

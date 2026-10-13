@@ -36,7 +36,7 @@ function writeJSON(file, value) {
   fs.writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 });
   fs.renameSync(temporary, file);
 }
-let peer = null, composer, pet, bubble, tray, quitting = false, unread = 0, latest = null, muted = false;
+let peer = null, composer, pet, bubble, tray, quitting = false, unread = 0, latest = null, muted = false, petWalk = null;
 let historyVersion = 0;
 const sentHistory = new WeakMap();
 const objects = new Map();
@@ -46,7 +46,8 @@ function displays() {
   const primary = screen.getPrimaryDisplay().id;
   return screen.getAllDisplays().sort((a, b) => (b.id === primary) - (a.id === primary) || a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y);
 }
-const emptyStatus = { relayConnected: 0, peerOnline: false, paired: false, peerName: '', peerPubkey: null };
+const emptyStatus = { relayConnected: 0, peerOnline: false, paired: false, peerName: '', peerPubkey: null,
+  canThrow: false, canQuickActions: false };
 function state() {
   return { name: config.name, invite: config.peerPubkey ? null : config.invite, configured: !!config.invite,
     status: peer?.status ?? emptyStatus, history, unread, latest, muted, version: app.getVersion(), pet: config.pet || PETS.cat };
@@ -68,6 +69,54 @@ function remember(message, direction) {
   historyVersion += 1;
 }
 function persistHistory() { writeJSON(historyFile, history); historyVersion += 1; broadcast(); }
+function stopPetWalk(restore = true) {
+  if (!petWalk) return;
+  clearTimeout(petWalk.timer);
+  if (pet && !pet.isDestroyed()) {
+    pet.webContents.send('walk-state', false);
+    if (restore) pet.setBounds(petWalk.original);
+  }
+  petWalk = null;
+}
+function walkPet() {
+  stopPetWalk();
+  const original = pet.getBounds();
+  const area = screen.getDisplayMatching(original).workArea;
+  const started = Date.now(), duration = 6000;
+  pet.showInactive();
+  petWalk = { original, timer: null };
+  pet.webContents.send('walk-state', true);
+  const step = () => {
+    if (!petWalk) return;
+    const t = Math.min(1, (Date.now() - started) / duration);
+    // A short ease at either end keeps the pet's middle section at a believable walking pace.
+    const eased = t < .12 ? .06 * (t / .12) ** 2
+      : t > .88 ? .94 + .06 * (1 - ((1 - t) / .12) ** 2)
+        : .06 + .88 * ((t - .12) / .76);
+    pet.setPosition(Math.round(area.x + area.width - eased * (area.width + PET_SIZE.width)),
+      Math.round(Math.max(area.y, Math.min(original.y, area.y + area.height - PET_SIZE.height))));
+    if (t < 1) petWalk.timer = setTimeout(step, 16);
+    else {
+      pet.webContents.send('walk-state', false);
+      pet.setOpacity(0); pet.setBounds(original); petWalk = null;
+      setTimeout(() => { if (pet && !pet.isDestroyed()) pet.setOpacity(1); }, 60);
+    }
+  };
+  step();
+}
+function playQuickAction(action) {
+  pet.showInactive();
+  if (action === 'walk') walkPet();
+  else pet.webContents.send('quick-action', action);
+}
+async function sendQuickAction(action) {
+  if (!['heart', 'poop', 'walk'].includes(action)) throw new Error('快捷互动无效。');
+  if (!peer?.status.peerOnline) throw new Error('小伙伴离线，暂时不能发送快捷互动。');
+  if (!peer.status.canQuickActions) throw new Error('请让双方更新到支持快捷互动的版本。');
+  const session = peer;
+  await session.send({ quickAction: action });
+  if (peer === session) pet.webContents.send('quick-action', action);
+}
 function startPeer() {
   peer?.stop();
   peer = null;
@@ -83,6 +132,7 @@ function startPeer() {
     for (const win of [composer]) win?.webContents.send('notice', error.message);
   });
   peer.on('message', (message) => {
+    if (message.quickAction) { playQuickAction(message.quickAction); return; }
     if (history.some((m) => m.id === message.id)) return;
     // Persist before acknowledging so a delivered message survives an app restart.
     remember(message, 'incoming');
@@ -163,7 +213,7 @@ app.whenReady().then(() => {
     alwaysOnTop: true, skipTaskbar: true, fullscreenable: false };
   pet = makeWindow('pet.html', { ...overlay, ...PET_SIZE,
     x: area.x + area.width - PET_SIZE.width - 24, y: area.y + area.height - PET_SIZE.height - 20, title: 'PetLink 小伙伴' });
-  bubble = makeWindow('bubble.html', { ...overlay, width: 360, height: 360, title: 'PetLink 新消息', focusable: true });
+  bubble = makeWindow('bubble.html', { ...overlay, width: 360, height: 420, title: 'PetLink 新消息', focusable: true });
   for (const win of [pet, bubble]) {
     win.setAlwaysOnTop(true, 'screen-saver');
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
@@ -209,7 +259,7 @@ app.whenReady().then(() => {
     } else throw new Error('请选择有效的桌宠。');
     writeJSON(configFile, config); broadcast(); return state();
   }, (w) => w === composer);
-  handle('drag-start', () => { dragOrigin = { bounds: pet.getBounds(), cursor: screen.getCursorScreenPoint() }; }, (w) => w === pet);
+  handle('drag-start', () => { stopPetWalk(false); dragOrigin = { bounds: pet.getBounds(), cursor: screen.getCursorScreenPoint() }; }, (w) => w === pet);
   handle('drag-move', () => {
     if (!dragOrigin) return;
     const cursor = screen.getCursorScreenPoint();
@@ -221,6 +271,19 @@ app.whenReady().then(() => {
     dragOrigin = null;
     pet.setBounds(clampBounds(pet.getBounds(), screen.getDisplayMatching(pet.getBounds()).workArea));
     config.position = pet.getBounds(); writeJSON(configFile, config);
+  }, (w) => w === pet);
+  handle('quick-action', sendQuickAction, (w) => w === pet);
+  handle('pet-menu', () => {
+    const enabled = !!peer?.status.peerOnline && !!peer.status.canQuickActions;
+    const run = action => sendQuickAction(action).catch(error => pet.webContents.send('notice', error.message));
+    Menu.buildFromTemplate([
+      { label: '给 TA 一个爱心  💗', enabled, click: () => run('heart') },
+      { label: '给 TA 一个便便  💩', enabled, click: () => run('poop') },
+      { label: '让小伙伴散个步  🐾', enabled, click: () => run('walk') },
+      ...(!enabled ? [{ type: 'separator' }, { label: peer?.status.peerOnline ? '请先更新双方版本' : '小伙伴离线', enabled: false }] : []),
+      { type: 'separator' }, { label: '打开 PetLink', click: showComposer }
+    ]).popup({ window: pet });
+    return true;
   }, (w) => w === pet);
   handle('pick-target', () => {
     if (choice) throw new Error('正在选择落点。');
@@ -280,6 +343,7 @@ app.whenReady().then(() => {
   });
   handle('send', async (message) => {
     if (!peer) throw new Error('请先配对。');
+    if (message?.quickAction) throw new Error('请从桌宠快捷菜单发送互动。');
     if (message?.throwDecision) throw new Error('请通过收到的请求按钮确认。');
     if (message?.placement && !peer.status.canThrow) throw new Error('对方版本还不支持甩东西，请双方更新到 0.2.0。');
     const session = peer;
@@ -291,7 +355,7 @@ app.whenReady().then(() => {
   handle('dismiss', markRead);
   handle('bubble-height', (height) => {
     if (!Number.isFinite(height)) return;
-    bubble.setSize(360, Math.max(120, Math.min(360, Math.ceil(height)))); positionBubble();
+    bubble.setSize(360, Math.max(160, Math.min(430, Math.ceil(height)))); positionBubble();
   });
   handle('mute', () => { muted = !muted; if (muted) bubble.hide(); broadcast(); return muted; });
   handle('link', async (value) => {
@@ -327,4 +391,4 @@ app.whenReady().then(() => {
 });
 app.on('activate', () => composer && showComposer());
 app.on('window-all-closed', () => {});
-app.on('before-quit', () => { quitting = true; peer?.stop(); });
+app.on('before-quit', () => { quitting = true; stopPetWalk(); peer?.stop(); });
