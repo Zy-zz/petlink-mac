@@ -6,8 +6,8 @@
   <header class="titlebar"><span class="brand">✳ PetLink</span><span class="edition">A LITTLE CLOSER</span></header>
   <main>
     <section class="hero"><div><p class="eyebrow">给桌面一点陪伴</p><h1>把话交给<br>你的小伙伴。</h1><p class="subline">你发出的每一句话，都会来到 TA 的桌面。</p></div><img class="hero-pet" src="pet.svg" alt="抱着爱心的桌面小猫"></section>
-    <div id="connection" class="connection"><span id="status-dot" class="dot"></span><span id="status-text">先认识一下彼此</span><button id="mute" class="text-button" hidden>暂停弹出</button></div>
-    <div class="pet-settings"><label for="pet-choice">桌宠</label><select id="pet-choice"><option value="cat">像素小猫</option><option value="bunny">像素小兔</option><option value="custom">选择自己的图片…</option></select></div>
+    <section class="top-controls"><div id="connection" class="connection"><span id="status-dot" class="dot"></span><span id="status-text">先认识一下彼此</span><button id="mute" class="text-button" hidden>暂停弹出</button></div>
+    <div class="pet-settings"><label for="pet-choice">桌宠</label><select id="pet-choice"><option value="cat">像素小猫</option><option value="bunny">像素小兔</option><option value="custom">选择自己的图片…</option></select></div></section>
     <p id="notice" class="notice" role="status" hidden></p>
     <section id="setup" class="setup">
       <label class="field-label" for="name">你的昵称</label><input id="name" maxlength="30" placeholder="让 TA 知道是谁在想他" autocomplete="nickname">
@@ -19,7 +19,7 @@
     <section id="conversation" class="conversation" hidden>
       <div class="conversation-heading"><span id="friend-label">小伙伴</span><button id="reset" class="text-button">断开配对</button></div>
       <div id="history" class="history" aria-live="polite"><div class="empty-chat"><span>♡</span><p>小伙伴已就位。<br>发一句「嘿，我在这里」吧。</p></div></div>
-      <form id="compose-form" class="compose-form"><div id="attachment-preview" class="attachment-preview" hidden></div><label class="sr-only" for="message">发送消息</label><textarea id="message" maxlength="4000" rows="3" placeholder="说点什么，或粘贴一个链接…"></textarea><div class="throw-controls"><button id="pick-target" class="text-button" type="button" title="选择对方桌面的落点">Toss</button><span id="target-label"></span><button id="clear-target" class="text-button" type="button" aria-label="取消桌面落点" hidden>×</button></div><div class="compose-footer"><label class="attach-button" for="file-input">＋ 图片 / 文件</label><input type="file" id="file-input" class="sr-only"><span class="shortcut-hint">⌘ ↵ 发送</span><button id="send" class="primary" type="submit">发送 ↗</button></div></form>
+      <form id="compose-form" class="compose-form"><div id="attachment-preview" class="attachment-preview" hidden></div><label class="sr-only" for="message">发送消息</label><textarea id="message" maxlength="4000" rows="2" placeholder="说点什么，或粘贴一个链接…"></textarea><div class="throw-controls"><button id="pick-target" class="text-button" type="button" title="选择对方桌面的落点">Toss</button><span id="target-label"></span><button id="clear-target" class="text-button" type="button" aria-label="取消桌面落点" hidden>×</button></div><div class="compose-footer"><label class="attach-button" for="file-input">＋ 图片 / 文件</label><input type="file" id="file-input" class="sr-only"><span class="shortcut-hint">⌘ ↵ 发送</span><button id="send" class="primary" type="submit">发送 ↗</button></div></form>
       <p class="fineprint">图片支持粘贴与拖入 · 单个文件 ≤ 5 MB · 对方在线时送达</p>
     </section>
     <footer><span>消息端到端加密</span><span>只有你们两个 <span class="tiny-heart">♡</span></span></footer>

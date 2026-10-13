@@ -1,5 +1,6 @@
-let unreadCount = 0;
+let unreadCount = 0, currentState = null, noticeTimer = null;
 function render(state) {
+  currentState = state;
   const pet = document.getElementById('pet');
   const image = document.querySelector('#pet img');
   if (state.pet) {
@@ -11,6 +12,12 @@ function render(state) {
   document.getElementById('pet-name').textContent = state.unread ? 'TA 有话想对你说' : state.muted ? '安静陪着你' : state.status.peerOnline ? `${state.status.peerName || '小伙伴'}在这里` : '小伙伴在这里';
   if (state.unread > unreadCount) { pet.classList.remove('new-message'); requestAnimationFrame(() => pet.classList.add('new-message')); }
   unreadCount = state.unread;
+}
+function playEffect(action) {
+  const effect = document.getElementById('effect');
+  effect.textContent = { heart: '💗', poop: '💩', walk: '🐾' }[action] || '';
+  effect.classList.remove('show');
+  requestAnimationFrame(() => effect.classList.add('show'));
 }
 const button = document.getElementById('pet');
 let origin = null, dragging = false, start = Promise.resolve();
@@ -34,4 +41,15 @@ function release(event) {
 }
 button.addEventListener('pointerup', release); button.addEventListener('pointercancel', release);
 button.addEventListener('click', (event) => { if (event.detail === 0) call('open').catch(showError); });
-window.petlink.onState(render); call('get-state').then(render).catch(showError);
+button.addEventListener('contextmenu', (event) => { event.preventDefault(); call('pet-menu').catch(showError); });
+window.petlink.onState(render);
+window.petlink.onQuickAction?.(playEffect);
+window.petlink.onWalkState?.((walking) => {
+  button.classList.toggle('walking', walking);
+  if (walking) playEffect('walk');
+});
+window.petlink.onNotice?.((value) => {
+  clearTimeout(noticeTimer); document.getElementById('pet-name').textContent = value;
+  noticeTimer = setTimeout(() => { if (currentState) render(currentState); }, 2200);
+});
+call('get-state').then(render).catch(showError);

@@ -39,3 +39,9 @@ test('click opens chat, while a cancelled gesture only saves the position', asyn
   cancelled.fire('pointerdown'); cancelled.fire('pointercancel'); await settle();
   assert.deepEqual(cancelled.calls, ['get-state', 'drag-start', 'drag-end']);
 });
+
+test('right click or two-finger click opens the pet quick-action menu', async () => {
+  const p = pet();
+  p.fire('contextmenu'); await settle();
+  assert.deepEqual(p.calls, ['get-state', 'pet-menu']);
+});
