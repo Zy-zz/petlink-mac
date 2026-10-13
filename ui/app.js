@@ -3,6 +3,13 @@ let attachment = null, placement = null, currentState = null, historyKey = '', p
 function notice(text = '') { $('notice').textContent = text; $('notice').hidden = !text; }
 function render(state) {
   currentState = state;
+  if (state.pet) {
+    $('pet-choice').value = state.pet.kind;
+    const image = document.querySelector('.hero-pet');
+    if (image.getAttribute('src') !== state.pet.src) image.src = state.pet.src;
+    image.alt = state.pet.name;
+    image.style.imageRendering = state.pet.pixel ? 'pixelated' : 'auto';
+  }
   const connected = state.status.relayConnected > 0;
   const paired = state.status.paired || !!state.status.peerPubkey;
   $('setup').hidden = state.configured;
@@ -44,10 +51,16 @@ $('copy').addEventListener('click', async () => { try { await call('copy-invite'
 $('mute').addEventListener('click', () => call('mute').catch(showError));
 $('reset').addEventListener('click', () => call('reset').catch(showError));
 $('cancel-invite').addEventListener('click', () => call('reset').catch(showError));
+$('pet-choice').addEventListener('change', async () => {
+  $('pet-choice').disabled = true; notice();
+  try { render(await call('set-pet', $('pet-choice').value)); }
+  catch (error) { showError(error); $('pet-choice').value = currentState.pet?.kind || 'cat'; }
+  finally { $('pet-choice').disabled = false; }
+});
 function showTarget() {
   $('target-label').textContent = placement ? `屏幕 ${placement.display} · 左 ${Math.round(placement.x * 100)}% / 上 ${Math.round(placement.y * 100)}%` : '';
   $('clear-target').hidden = !placement;
-  $('send').textContent = placement ? '发甩东西请求 ↗' : '发送 ↗';
+  $('send').textContent = placement ? 'Toss' : '发送 ↗';
 }
 $('pick-target').addEventListener('click', async () => {
   notice();
@@ -73,17 +86,11 @@ async function attach(file) {
   preparing = true; notice();
   try {
     if (file.size > 5 * 1024 * 1024) throw new Error('单个文件最大 5 MB，请选择较小的文件。');
-    let data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error('文件读取失败。')); reader.readAsDataURL(file); });
-    let mime = file.type || 'application/octet-stream', name = file.name || '粘贴图片.png';
+    const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error('文件读取失败。')); reader.readAsDataURL(file); });
+    const mime = file.type || 'application/octet-stream', name = file.name || '粘贴图片.png';
     if (['image/png', 'image/jpeg', 'image/webp'].includes(mime)) {
       const image = new Image(); image.src = data; await image.decode();
       if (image.width * image.height > 64_000_000) throw new Error('图片尺寸过大，请先缩小。');
-      if (file.size > 200 * 1024 || Math.max(image.width, image.height) > 1280) {
-        const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
-        const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.width * scale)); canvas.height = Math.max(1, Math.round(image.height * scale));
-        const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-        data = canvas.toDataURL('image/jpeg', .84); mime = 'image/jpeg'; name = name.replace(/\.[^.]+$/, '') + '.jpg';
-      }
     }
     attachment = { name, mime, data: data.slice(data.indexOf(',') + 1) }; showAttachment();
   } catch (error) { showError(error); }

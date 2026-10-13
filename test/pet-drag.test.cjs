@@ -9,7 +9,7 @@ function pet() {
   const button = { addEventListener: (name, fn) => listeners.set(name, fn), setPointerCapture() {},
     classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name) } };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../ui/pet.js'), 'utf8'), {
-    document: { getElementById: () => button },
+    document: { getElementById: () => button, querySelector: () => ({ style: {} }) },
     window: { petlink: { onState() {} } },
     call: async (channel) => { calls.push(channel); if (channel === 'get-state') return { unread: 0, status: {} }; },
     showError: (error) => { throw error; }

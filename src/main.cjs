@@ -3,6 +3,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Peer, createIdentity, createInvite, parseInvite, validatePlacement, DEFAULT_RELAYS } = require('./peer.cjs');
 const { clampBounds, placedBounds } = require('./desktop.cjs');
+const PET_SIZE = { width: 96, height: 108 };
+const PETS = {
+  cat: { kind: 'cat', src: 'pet.svg', name: '像素小猫', pixel: true },
+  bunny: { kind: 'bunny', src: 'bunny.svg', name: '像素小兔', pixel: true }
+};
 
 if (process.env.PETLINK_PROFILE) app.setPath('userData', path.resolve(process.env.PETLINK_PROFILE));
 app.setName('PetLink');
@@ -44,7 +49,7 @@ function displays() {
 const emptyStatus = { relayConnected: 0, peerOnline: false, paired: false, peerName: '', peerPubkey: null };
 function state() {
   return { name: config.name, invite: config.peerPubkey ? null : config.invite, configured: !!config.invite,
-    status: peer?.status ?? emptyStatus, history, unread, latest, muted, version: app.getVersion() };
+    status: peer?.status ?? emptyStatus, history, unread, latest, muted, version: app.getVersion(), pet: config.pet || PETS.cat };
 }
 function broadcast() {
   for (const win of [composer, pet, bubble]) if (win && !win.isDestroyed()) {
@@ -156,8 +161,8 @@ app.whenReady().then(() => {
   const area = screen.getPrimaryDisplay().workArea;
   const overlay = { frame: false, transparent: true, hasShadow: false, resizable: false,
     alwaysOnTop: true, skipTaskbar: true, fullscreenable: false };
-  pet = makeWindow('pet.html', { ...overlay, width: 160, height: 170,
-    x: area.x + area.width - 196, y: area.y + area.height - 190, title: 'PetLink 小伙伴' });
+  pet = makeWindow('pet.html', { ...overlay, ...PET_SIZE,
+    x: area.x + area.width - PET_SIZE.width - 24, y: area.y + area.height - PET_SIZE.height - 20, title: 'PetLink 小伙伴' });
   bubble = makeWindow('bubble.html', { ...overlay, width: 360, height: 360, title: 'PetLink 新消息', focusable: true });
   for (const win of [pet, bubble]) {
     win.setAlwaysOnTop(true, 'screen-saver');
@@ -167,9 +172,7 @@ app.whenReady().then(() => {
   if (config.position) {
     const { x, y } = config.position;
     if (Number.isFinite(x) && Number.isFinite(y)) {
-      const target = screen.getDisplayMatching({ x, y, width: 160, height: 170 }).workArea;
-      pet.setPosition(Math.max(target.x, Math.min(x, target.x + target.width - 160)),
-        Math.max(target.y, Math.min(y, target.y + target.height - 170)));
+      pet.setBounds(clampBounds({ x, y, ...PET_SIZE }, screen.getDisplayMatching({ x, y, ...PET_SIZE }).workArea));
     }
   }
   pet.once('ready-to-show', () => pet.showInactive());
@@ -189,6 +192,23 @@ app.whenReady().then(() => {
     { role: 'editMenu' }, { role: 'windowMenu' }
   ]));
   handle('get-state', state);
+  handle('set-pet', async (kind) => {
+    if (typeof kind === 'string' && Object.hasOwn(PETS, kind)) config.pet = PETS[kind];
+    else if (kind === 'custom') {
+      const result = await dialog.showOpenDialog(composer, { title: '选择桌宠图片', properties: ['openFile'],
+        filters: [{ name: '桌宠图片', extensions: ['png', 'jpg', 'jpeg'] }] });
+      if (result.canceled) return state();
+      const file = result.filePaths[0];
+      const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' }[path.extname(file).toLowerCase()];
+      if (!mime || fs.statSync(file).size > 2 * 1024 * 1024) throw new Error('桌宠支持 PNG/JPEG，最大 2 MiB。');
+      const data = fs.readFileSync(file);
+      if (data.length > 2 * 1024 * 1024) throw new Error('桌宠图片最大 2 MiB。');
+      const image = nativeImage.createFromBuffer(data), size = image.getSize();
+      if (image.isEmpty() || size.width * size.height > 64_000_000) throw new Error('无法读取图片或图片尺寸过大。');
+      config.pet = { kind: 'custom', src: `data:${mime};base64,${data.toString('base64')}`, name: '自定义桌宠', pixel: false };
+    } else throw new Error('请选择有效的桌宠。');
+    writeJSON(configFile, config); broadcast(); return state();
+  }, (w) => w === composer);
   handle('drag-start', () => { dragOrigin = { bounds: pet.getBounds(), cursor: screen.getCursorScreenPoint() }; }, (w) => w === pet);
   handle('drag-move', () => {
     if (!dragOrigin) return;
@@ -224,7 +244,7 @@ app.whenReady().then(() => {
   handle('close-object', (_value, win) => win.close(), (w) => objects.has(w));
   handle('object-height', (height, win) => {
     if (!Number.isFinite(height)) return;
-    win.setBounds(placedBounds(objects.get(win).placement, displays(), { width: 300, height: Math.max(100, Math.min(420, Math.ceil(height))) }));
+    win.setBounds(placedBounds(objects.get(win).placement, displays(), { width: 300, height: Math.max(30, Math.min(420, Math.ceil(height))) }));
   }, (w) => objects.has(w));
   handle('respond-throw', async ({ requestId, accepted }) => {
     if (typeof accepted !== 'boolean') throw new Error('请选择确认或拒绝。');
@@ -300,7 +320,7 @@ app.whenReady().then(() => {
   powerMonitor.on('resume', startPeer);
   screen.on('display-removed', () => {
     finishChoice(null);
-    const a = screen.getPrimaryDisplay().workArea; pet.setPosition(a.x + a.width - 196, a.y + a.height - 190);
+    const a = screen.getPrimaryDisplay().workArea; pet.setPosition(a.x + a.width - PET_SIZE.width - 24, a.y + a.height - PET_SIZE.height - 20);
     for (const [win, message] of objects) win.setBounds(placedBounds(message.placement, displays(), win.getBounds()));
   });
   startPeer();

@@ -51,17 +51,45 @@ async function send(page, text) {
   assert.equal(await page.locator('#notice').isVisible(), false, await page.locator('#notice').textContent());
 }
 async function selectTarget(client) {
+  assert.equal(await client.page.locator('#pick-target').textContent(), 'Toss');
   const previous = new Set(client.app.windows());
   await client.page.locator('#pick-target').click();
   const target = await windowPage(client.app, 'target.html', previous);
   const size = await target.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   await target.mouse.click(Math.round(size.width * .3), Math.round(size.height * .28));
   await client.page.locator('#target-label').getByText(/屏幕 \d+/).waitFor();
+  assert.equal(await client.page.locator('#send').textContent(), 'Toss');
 }
 (async () => {
   relay = await startRelay();
   const alice = await launch('alice');
   let bob = await launch('bob');
+  const smallPet = await windowPage(bob.app, 'pet.html');
+  const petWindow = await bob.app.browserWindow(smallPet);
+  assert.deepEqual(await petWindow.evaluate(w => w.getSize()), [96, 108]);
+  await bob.page.locator('#pet-choice').selectOption('bunny');
+  await smallPet.waitForFunction(() => document.querySelector('#pet img').getAttribute('src') === 'bunny.svg');
+  assert.equal(await smallPet.locator('#pet img').evaluate(el => getComputedStyle(el).imageRendering), 'pixelated');
+  const customPetFile = path.join(profiles, 'custom-pet.png'); fs.writeFileSync(customPetFile, pixel);
+  await bob.app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, customPetFile);
+  await bob.page.locator('#pet-choice').selectOption('custom');
+  await smallPet.waitForFunction(() => document.querySelector('#pet img').getAttribute('src')?.startsWith('data:image/png'));
+  assert.equal((await bob.page.evaluate(() => window.petlink.call('get-state'))).pet.src, `data:image/png;base64,${pixel.toString('base64')}`);
+  const badPetFile = path.join(profiles, 'broken-pet.png'); fs.writeFileSync(badPetFile, 'not an image');
+  await bob.app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, badPetFile);
+  await bob.page.locator('#pet-choice').selectOption('custom');
+  await bob.page.locator('#notice').getByText('无法读取图片或图片尺寸过大。').waitFor();
+  assert.equal((await bob.page.evaluate(() => window.petlink.call('get-state'))).pet.src, `data:image/png;base64,${pixel.toString('base64')}`);
+  fs.writeFileSync(badPetFile, Buffer.alloc(2 * 1024 * 1024 + 1));
+  await bob.page.locator('#pet-choice').selectOption('custom');
+  await bob.page.locator('#notice').getByText('桌宠支持 PNG/JPEG，最大 2 MiB。').waitFor();
+  await bob.app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }); });
+  await bob.page.locator('#pet-choice').selectOption('custom');
+  assert.equal((await bob.page.evaluate(() => window.petlink.call('get-state'))).pet.kind, 'custom');
+  const invalidPet = await bob.page.evaluate(async () => {
+    try { await window.petlink.call('set-pet', 'constructor'); return false; } catch { return true; }
+  });
+  assert.equal(invalidPet, true);
   await alice.page.locator('#name').fill('小林');
   await alice.page.locator('#create').click();
   try { await alice.page.locator('#invite-code').waitFor({ state: 'visible', timeout: 10000 }); }
@@ -114,6 +142,8 @@ async function selectTarget(client) {
   const oldEvents = relay.events.filter(event => event.pubkey === alicePubkey);
   await bob.app.close();
   bob = await launch('bob');
+  assert.equal((await bob.page.evaluate(() => window.petlink.call('get-state'))).pet.src, `data:image/png;base64,${pixel.toString('base64')}`);
+  await bob.page.locator('#pet-choice').selectOption('cat');
   await Promise.all([online(alice.page), online(bob.page)]);
   const restored = await bob.page.evaluate(() => window.petlink.call('get-state'));
   assert.equal(restored.name, '阿月');
@@ -140,17 +170,41 @@ async function selectTarget(client) {
   await bubble.locator('.throw-actions').getByRole('button', { name: '拒绝', exact: true }).click();
   await alice.page.locator(`[data-message-id="${request.id}"] .throw-status`).getByText('已拒绝').waitFor();
   assert.equal(bob.app.windows().filter(p => p.url().endsWith('/object.html')).length, 0, 'rejection never places an object');
+  const originalImage = Buffer.from(await (await windowPage(alice.app, 'pet.html')).evaluate(async () => {
+    const image = document.querySelector('img'); await image.decode();
+    const canvas = document.createElement('canvas'); canvas.width = 1440; canvas.height = 1530;
+    const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png').split(',')[1];
+  }), 'base64');
   await selectTarget(alice);
-  await alice.page.locator('#file-input').setInputFiles(path.join(root, 'ui/icon.png'));
+  await alice.page.locator('#file-input').setInputFiles({ name: '透明小猫.png', mimeType: 'image/png', buffer: originalImage });
   await alice.page.locator('#attachment-preview').waitFor({ state: 'visible' });
   await send(alice.page, '接住一只小猫 ♡');
   await bubble.locator('#content .throw-actions').waitFor();
   const imageRequest = (await bob.page.evaluate(() => window.petlink.call('get-state'))).history.findLast(m => m.placement);
+  assert.equal(imageRequest.attachment.mime, 'image/png');
+  assert.deepEqual(Buffer.from(imageRequest.attachment.data, 'base64'), originalImage, 'image bytes stay unchanged, including alpha');
   assert.equal(bob.app.windows().filter(p => p.url().endsWith('/object.html')).length, 0);
   await bubble.screenshot({ path: path.join(output, 'throw-request.png'), omitBackground: true });
   await bubble.locator('.throw-actions').getByRole('button', { name: '确认接住 ↗', exact: true }).click();
   const object = await windowPage(bob.app, 'object.html');
   await object.waitForFunction(() => document.querySelector('#object-content img')?.naturalWidth > 0);
+  assert.equal(await object.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext('2d'); ctx.drawImage(document.querySelector('#object-content img'), 0, 0);
+    return ctx.getImageData(0, 0, 1, 1).data[3];
+  }), 0, 'transparent PNG corner remains transparent');
+  const appearance = await object.evaluate(() => {
+    const style = getComputedStyle(document.querySelector('.desktop-object'));
+    const image = getComputedStyle(document.querySelector('#object-content img'));
+    return { background: style.backgroundColor, border: style.borderWidth, shadow: style.boxShadow,
+      radius: image.borderRadius, text: document.querySelector('#object-content').textContent,
+      metadata: document.querySelectorAll('.object-header, .file-card, .throw-location, .throw-actions').length };
+  });
+  assert.deepEqual(appearance, { background: 'rgba(0, 0, 0, 0)', border: '0px', shadow: 'none',
+    radius: '0px', text: imageRequest.text, metadata: 0 });
+  await object.mouse.move(0, 0);
+  assert.equal(await object.locator('#close-object').evaluate(el => getComputedStyle(el).opacity), '0');
   await alice.page.locator(`[data-message-id="${imageRequest.id}"] .throw-status`).getByText('已确认接住 ✓').waitFor();
   const objectWindow = await bob.app.browserWindow(object);
   const bounds = await objectWindow.evaluate(win => win.getBounds());
@@ -161,16 +215,25 @@ async function selectTarget(client) {
   assert.deepEqual(bounds, placedBounds(imageRequest.placement, nativeDisplays, { width: bounds.width, height: bounds.height }));
   assert.equal(await objectWindow.evaluate(win => win.isVisible()), true);
   await object.screenshot({ path: path.join(output, 'desktop-throw.png'), omitBackground: true });
+  await object.locator('.desktop-object').hover();
+  assert.equal(await object.locator('#close-object').evaluate(el => getComputedStyle(el).opacity), '1');
   await object.locator('#close-object').click();
   await bob.page.waitForTimeout(100);
   assert.equal(bob.app.windows().filter(p => p.url().endsWith('/object.html')).length, 0);
   await selectTarget(alice);
-  await send(alice.page, '再单独接住一句文字');
+  const originalText = '再单独接住一句文字\n<img src=x onerror="window.injection=true"> https://example.com';
+  await send(alice.page, originalText);
   await bubble.locator('#content .throw-actions').waitFor();
   const textRequest = (await bob.page.evaluate(() => window.petlink.call('get-state'))).history.findLast(m => m.placement);
   await bubble.locator('.throw-actions').getByRole('button', { name: '确认接住 ↗', exact: true }).click();
   const textObject = await windowPage(bob.app, 'object.html');
-  await textObject.locator('#object-content').getByText('再单独接住一句文字').waitFor();
+  await textObject.locator('#object-content').getByText('再单独接住一句文字', { exact: false }).waitFor();
+  assert.equal(await textObject.locator('#object-content').textContent(), originalText);
+  assert.equal(await textObject.locator('#object-content img, #object-content a').count(), 0);
+  assert.equal(await textObject.evaluate(() => window.injection === true), false);
+  await textObject.mouse.move(0, 0);
+  await textObject.waitForFunction(() => document.querySelector('.desktop-object').getAnimations().every(a => a.playState === 'finished'));
+  await textObject.screenshot({ path: path.join(output, 'desktop-text.png'), omitBackground: true });
   const repeat = await bob.page.evaluate(async requestId => {
     try { await window.petlink.call('respond-throw', { requestId, accepted: true }); return false; } catch { return true; }
   }, textRequest.id);
@@ -188,9 +251,12 @@ async function selectTarget(client) {
   });
   fs.writeFileSync(path.join(root, 'ui/icon.png'), Buffer.from(icon, 'base64'));
   fs.writeFileSync(path.join(output, 'ui-result.json'), JSON.stringify({ passed: true,
-    checks: ['UI pair and clipboard invite', 'real two-process relay delivery', 'pet bubble always on top', 'clickable link', 'blocked unsafe URL',
+    checks: ['small pixel pet', 'built-in pet switching', 'custom pet image', 'pet selection persists on restart', 'invalid and oversized pet image rejected',
+      'UI pair and clipboard invite', 'real two-process relay delivery', 'pet bubble always on top', 'clickable link', 'blocked unsafe URL',
       'image display', 'attachment save/readback', 'literal HTML message', 'dismiss', 'mute', 'restart retains pair/history', 'restart replay dedup', 'bidirectional reply',
-      'desktop target picker', 'no placement before consent', 'reject request', 'consent IPC restricted', 'accept image at mapped coordinates', 'close desktop object', 'accept text once'] }, null, 2));
+      'Toss button labels', 'desktop target picker', 'no placement before consent', 'reject request', 'consent IPC restricted',
+      'original image bytes preserved', 'frameless transparent content', 'close button hidden until hover',
+      'accept image at mapped coordinates', 'close desktop object', 'literal original text', 'accept text once'] }, null, 2));
   console.log('PASS: two Mac clients, pairing, chat, restart, desktop target selection, confirmed image/text placement and rejection.');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   for (const app of apps) await app.close().catch(() => {});

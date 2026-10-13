@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('petlink', {
   call: async (channel, value) => {
-    if (!['get-state', 'configure', 'copy-invite', 'send', 'open', 'dismiss', 'mute', 'link', 'save-attachment', 'reset', 'bubble-height',
+    if (!['get-state', 'set-pet', 'configure', 'copy-invite', 'send', 'open', 'dismiss', 'mute', 'link', 'save-attachment', 'reset', 'bubble-height',
       'drag-start', 'drag-move', 'drag-end', 'pick-target', 'choose-target', 'cancel-target', 'get-object', 'close-object', 'object-height', 'respond-throw'].includes(channel))
       throw new Error('未知操作');
     const result = await ipcRenderer.invoke(channel, value);

@@ -5,7 +5,7 @@ function showError(error) {
 }
 function renderContent(container, message) {
   container.replaceChildren();
-  if (message.placement && container.id !== 'object-content') {
+  if (message.placement) {
     const location = document.createElement('p'); location.className = 'throw-location';
     location.textContent = `甩东西请求 · 屏幕 ${message.placement.display} · 左 ${Math.round(message.placement.x * 100)}% / 上 ${Math.round(message.placement.y * 100)}%`;
     container.append(location);
