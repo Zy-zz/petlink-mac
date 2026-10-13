@@ -6,23 +6,23 @@
 
 [下载最新版](https://github.com/Zy-zz/petlink-mac/releases/latest)
 
-当前版本 **0.4.0**：
+当前版本 **0.4.1**：
 
-- [Mac 安装包 DMG](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-mac-arm64.dmg)
-- [Mac 应用 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-mac-arm64.zip)
-- [源码 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-source.zip)
-- [SHA-256 校验文件](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.0/PetLink-0.4.0-SHA256SUMS.txt)
+- [Mac 安装包 DMG](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.1/PetLink-0.4.1-mac-arm64.dmg)
+- [Mac 应用 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.1/PetLink-0.4.1-mac-arm64.zip)
+- [源码 ZIP](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.1/PetLink-0.4.1-source.zip)
+- [SHA-256 校验文件](https://github.com/Zy-zz/petlink-mac/releases/download/v0.4.1/PetLink-0.4.1-SHA256SUMS.txt)
 
 ## 安装与使用
 
 当前安装包适用于 **Apple Silicon Mac，macOS 13 或更高版本**。
 
-1. 从上方下载 DMG，打开后把 PetLink 拖入 Applications（应用程序）。升级时先退出旧版，再用新版替换原应用；配对和聊天记录会保留。建议双方都安装 0.4.0，Toss 功能最低需要 0.2.0。
+1. 从上方下载 DMG，打开后把 PetLink 拖入 Applications（应用程序）。升级时先退出旧版，再用新版替换原应用；配对和聊天记录会保留。建议双方都安装 0.4.1，Toss 功能最低需要 0.2.0。
 2. 双方运行 PetLink。一方填写昵称，点击「邀请一个小伙伴」，复制邀请码发给对方。
 3. 对方填写昵称，选择「我有邀请码」，粘贴后连接。邀请码只应交给想配对的人；第一位加入者会成为固定小伙伴。
 4. 显示「小伙伴在线」后，发送文字、HTTP/HTTPS 链接或附件。对方的小猫旁直接出现气泡，点击「回一句」回复。
 
-**已发布的 0.4.0 安装包**使用本地 ad-hoc 签名，未用 Apple Developer ID 签名或公证。从网络下载时，macOS 会提示无法验证安全性。如果信任下载来源，先尝试打开一次，再在「系统设置 → 隐私与安全性」找到 PetLink 并选择「仍要打开」，按提示确认。参见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。无需辅助功能、屏幕录制或远程控制权限。
+**0.4.1 安装包仍然**使用本地 ad-hoc 签名，未用 Apple Developer ID 签名或公证。从网络下载时，macOS 会提示无法验证安全性。如果信任下载来源，先尝试打开一次，再在「系统设置 → 隐私与安全性」找到 PetLink 并选择「仍要打开」，按提示确认。参见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。无需辅助功能、屏幕录制或远程控制权限。
 
 桌宠默认是 96 × 108 的像素小猫，比早期版本更小。聊天窗口的「桌宠」下拉框可切换像素小猫、像素小兔，或选择自己的图片（PNG/JPEG，最大 2 MiB，推荐透明背景 PNG）。自定义图片复制到本机配置，原文件移动或删除不影响桌宠；选择会在重启后保留。
 
@@ -34,7 +34,7 @@
 
 临时签名更新会在安装前明确提示，保留 macOS 安全验证，因此可能仍需「系统设置 → 隐私与安全性 → 仍要打开」。已使用 Developer ID 签名的应用只接受同一 Apple 团队签名且公证通过的更新。更新不会静默安装或降级。应用目录不可写时，先将 PetLink 放到你自己的 `~/Applications` 目录。安装前保留旧应用备份，替换或启动命令失败时回退；新版本正常加载配置后才清理备份。
 
-已发布的 0.4.0 尚无此入口，需要先安装一次包含更新功能的新版本。检查和下载更新时会连接 GitHub，不上传聊天或配对数据。后续 Release 必须包含版本一致的 `PetLink-版本-mac-arm64.zip`；现有打包及发布流程已生成这个文件。
+已发布的 0.4.0 尚无此入口，需要先安装一次 0.4.1；之后可以直接在应用内更新。检查和下载更新时会连接 GitHub，不上传聊天或配对数据。后续 Release 必须包含版本一致的 `PetLink-版本-mac-arm64.zip`；现有打包及发布流程已生成这个文件。
 
 ## 甩东西到对方桌面
 
