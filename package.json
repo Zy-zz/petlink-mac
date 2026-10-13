@@ -1,0 +1,24 @@
+{
+  "name": "petlink-mac",
+  "productName": "PetLink",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Send a little company to a friend's desktop.",
+  "license": "MIT",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "test:ui": "node test/ui-smoke.cjs",
+    "build:mac": "node scripts/build-mac.cjs"
+  },
+  "dependencies": {
+    "@noble/curves": "2.0.1",
+    "nostr-tools": "^2.17.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "playwright-core": "^1.56.0"
+  }
+}

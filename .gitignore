@@ -1,0 +1,13 @@
+node_modules/
+dist/
+research/lolPing/
+research/*.dmg
+research/*.asar
+research/extracted/
+test-output/
+.DS_Store
+research/*
+!research/REA-FINDINGS.md
+!research/lolping-rea-linux-evidence.json
+!research/rea-window-trace.json
+!research/rea-room-trace.json
