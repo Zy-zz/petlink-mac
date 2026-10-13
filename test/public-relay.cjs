@@ -71,6 +71,15 @@ async function attempt(relays) {
       if (input.attachment) assert.deepEqual(received.attachment, input.attachment);
       result.messages.push({ type: label, acknowledgedByRecipient: true, bytes: input.attachment ? Buffer.from(input.attachment.data, 'base64').length : Buffer.byteLength(input.text), elapsedMs: Date.now() - started });
     }
+    assert.equal(a.status.canThrow, true);
+    const at = Date.now();
+    const placement = { display: 1, x: .3, y: .28 };
+    const request = await a.send({ text: '公网甩东西请求测试', placement, attachment: { name: 'pixel.png', mime: 'image/png', data: png.toString('base64') } });
+    assert.deepEqual(inbox.get(request.id).placement, placement);
+    const response = await b.send({ text: '测试客户端确认收到', throwDecision: { requestId: request.id, accepted: true } });
+    assert.deepEqual(inbox.get(response.id).throwDecision, { requestId: request.id, accepted: true });
+    result.messages.push({ type: 'throw-request+decision', acknowledgedByRecipient: true, elapsedMs: Date.now() - at,
+      scope: 'Protocol fields and recipient ack only; native consent and placement are tested separately in UI tests.' });
     result.outcome = 'success';
   } catch (error) {
     result.outcome = 'failed';

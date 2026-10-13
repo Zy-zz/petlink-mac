@@ -60,6 +60,22 @@ test('JSON-persisted identity and pair keys work without native secp256k1 suppor
     assert.equal(parseInvite(invite).hostPubkey, identity.pubkey);
   } finally { ECDH.convertKey = original; }
 });
+test('throw requests and decisions keep their fields through real encrypted relay delivery', async t => {
+  const { alice, bob } = await pair(t);
+  assert.equal(alice.status.canThrow, true);
+  assert.equal(bob.status.canThrow, true);
+  const incoming = [];
+  bob.on('message', message => incoming.push(message));
+  let decision;
+  alice.on('message', message => { decision = message; });
+  const placement = { display: 2, x: .25, y: .75 };
+  const sent = await alice.send({ text: '接住这句话', placement });
+  assert.deepEqual(incoming[0].placement, placement);
+  await bob.send({ text: '接住了', throwDecision: { requestId: sent.id, accepted: true } });
+  assert.deepEqual(decision.throwDecision, { requestId: sent.id, accepted: true });
+  await bob.publish({ type: 'hello', name: 'Bob', target: alice.identity.pubkey, at: Date.now() }, 'hello');
+  await until(() => !alice.status.canThrow);
+});
 
 test('real WebSocket: pin identities, bidirectional text/link/image/file, encrypted fragmentation and dedup', async t => {
   const { alice, bob, relay, paired } = await pair(t);

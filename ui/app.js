@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-let attachment = null, currentState = null, historyKey = '', preparing = false;
+let attachment = null, placement = null, currentState = null, historyKey = '', preparing = false;
 function notice(text = '') { $('notice').textContent = text; $('notice').hidden = !text; }
 function render(state) {
   currentState = state;
@@ -15,7 +15,7 @@ function render(state) {
   if (!$('name').value && state.name) $('name').value = state.name;
   $('invite-code').value = state.invite || '';
   $('friend-label').textContent = `和 ${state.status.peerName || '小伙伴'} 的小纸条`;
-  const key = state.history?.map((m) => m.id).join(',');
+  const key = state.history?.map((m) => `${m.id}:${m.throwState || ''}`).join(',');
   if (key !== undefined && key !== historyKey) {
     historyKey = key;
     $('history').replaceChildren();
@@ -44,6 +44,20 @@ $('copy').addEventListener('click', async () => { try { await call('copy-invite'
 $('mute').addEventListener('click', () => call('mute').catch(showError));
 $('reset').addEventListener('click', () => call('reset').catch(showError));
 $('cancel-invite').addEventListener('click', () => call('reset').catch(showError));
+function showTarget() {
+  $('target-label').textContent = placement ? `屏幕 ${placement.display} · 左 ${Math.round(placement.x * 100)}% / 上 ${Math.round(placement.y * 100)}%` : '';
+  $('clear-target').hidden = !placement;
+  $('send').textContent = placement ? '发甩东西请求 ↗' : '发送 ↗';
+}
+$('pick-target').addEventListener('click', async () => {
+  notice();
+  if (!currentState?.status.canThrow) return notice('对方版本还不支持甩东西，请双方更新到 0.2.0。');
+  $('pick-target').disabled = true;
+  try { const selected = await call('pick-target'); if (selected) placement = selected; showTarget(); }
+  catch (error) { showError(error); }
+  finally { $('pick-target').disabled = false; }
+});
+$('clear-target').addEventListener('click', () => { if ($('send').disabled) return; placement = null; showTarget(); });
 function showAttachment() {
   const container = $('attachment-preview'); container.replaceChildren(); container.hidden = !attachment;
   if (!attachment) return;
@@ -88,12 +102,12 @@ $('compose-form').addEventListener('submit', async (event) => {
   if (preparing) return notice('附件正在准备，请稍候。');
   const text = $('message').value;
   if (!text.trim() && !attachment) return;
-  $('send').disabled = true; $('message').disabled = true; $('file-input').disabled = true; $('send').textContent = '送达中…';
+  $('send').disabled = true; $('message').disabled = true; $('file-input').disabled = true; $('pick-target').disabled = true; $('send').textContent = '送达中…';
   try {
-    await call('send', { text, ...(attachment ? { attachment } : {}) });
-    $('message').value = ''; attachment = null; $('file-input').value = ''; showAttachment();
+    await call('send', { text, ...(attachment ? { attachment } : {}), ...(placement ? { placement } : {}) });
+    $('message').value = ''; attachment = null; placement = null; $('file-input').value = ''; showAttachment(); showTarget();
   } catch (error) { showError(error); }
-  finally { $('send').disabled = false; $('message').disabled = false; $('file-input').disabled = false; $('send').textContent = '发送 ↗'; $('message').focus(); }
+  finally { $('send').disabled = false; $('message').disabled = false; $('file-input').disabled = false; $('pick-target').disabled = false; showTarget(); $('message').focus(); }
 });
 $('message').addEventListener('keydown', (event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !$('send').disabled) { event.preventDefault(); $('compose-form').requestSubmit(); } });
 window.petlink.onState(render); window.petlink.onNotice((value) => notice(value)); call('get-state').then(render).catch(showError);

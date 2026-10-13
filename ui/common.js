@@ -5,6 +5,27 @@ function showError(error) {
 }
 function renderContent(container, message) {
   container.replaceChildren();
+  if (message.placement && container.id !== 'object-content') {
+    const location = document.createElement('p'); location.className = 'throw-location';
+    location.textContent = `甩东西请求 · 屏幕 ${message.placement.display} · 左 ${Math.round(message.placement.x * 100)}% / 上 ${Math.round(message.placement.y * 100)}%`;
+    container.append(location);
+    const status = document.createElement('p'); status.className = 'throw-status';
+    status.textContent = message.throwState === 'accepted' ? '已确认接住 ✓' : message.throwState === 'rejected' ? '已拒绝' :
+      message.direction === 'outgoing' ? '已送达，等待 TA 确认' : '确认后才会甩到这个位置，5 分钟内有效';
+    container.append(status);
+    if (message.direction === 'incoming' && message.throwState === 'pending') {
+      const actions = document.createElement('div'); actions.className = 'throw-actions';
+      for (const [accepted, label] of [[true, '确认接住 ↗'], [false, '拒绝']]) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = accepted ? 'primary' : 'secondary'; button.textContent = label;
+        button.addEventListener('click', async () => {
+          actions.querySelectorAll('button').forEach((b) => b.disabled = true);
+          try { const result = await call('respond-throw', { requestId: message.id, accepted }); if (result.notice) showError(result.notice); }
+          catch (error) { showError(error); actions.querySelectorAll('button').forEach((b) => b.disabled = false); }
+        }); actions.append(button);
+      }
+      container.append(actions);
+    }
+  }
   if (message.text) {
     const text = document.createElement('p'); text.className = 'message-text';
     let cursor = 0;

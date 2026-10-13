@@ -1,7 +1,8 @@
 let currentId = '';
 function render(state) {
-  if (!state.latest || state.latest.id === currentId) return;
-  currentId = state.latest.id;
+  const key = state.latest && `${state.latest.id}:${state.latest.throwState || ''}`;
+  if (!state.latest || key === currentId) return;
+  currentId = key;
   document.getElementById('sender').textContent = state.latest.fromName;
   renderContent(document.getElementById('content'), state.latest);
 }

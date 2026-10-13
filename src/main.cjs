@@ -1,7 +1,8 @@
 const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, clipboard, shell, dialog, screen, powerMonitor } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const { Peer, createIdentity, createInvite, parseInvite, DEFAULT_RELAYS } = require('./peer.cjs');
+const { Peer, createIdentity, createInvite, parseInvite, validatePlacement, DEFAULT_RELAYS } = require('./peer.cjs');
+const { clampBounds, placedBounds } = require('./desktop.cjs');
 
 if (process.env.PETLINK_PROFILE) app.setPath('userData', path.resolve(process.env.PETLINK_PROFILE));
 app.setName('PetLink');
@@ -33,6 +34,13 @@ function writeJSON(file, value) {
 let peer = null, composer, pet, bubble, tray, quitting = false, unread = 0, latest = null, muted = false;
 let historyVersion = 0;
 const sentHistory = new WeakMap();
+const objects = new Map();
+const pickerDisplays = new Map();
+let choice = null, dragOrigin = null;
+function displays() {
+  const primary = screen.getPrimaryDisplay().id;
+  return screen.getAllDisplays().sort((a, b) => (b.id === primary) - (a.id === primary) || a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y);
+}
 const emptyStatus = { relayConnected: 0, peerOnline: false, paired: false, peerName: '', peerPubkey: null };
 function state() {
   return { name: config.name, invite: config.peerPubkey ? null : config.invite, configured: !!config.invite,
@@ -48,12 +56,13 @@ function broadcast() {
   }
 }
 function remember(message, direction) {
-  history.push({ ...message, direction });
+  history.push({ ...message, direction, ...(message.placement ? { throwState: 'pending' } : {}) });
   let bytes = history.reduce((sum, m) => sum + (m.attachment?.data.length ?? 0), 0);
   while (history.length > 40 || bytes > 24 * 1024 * 1024) bytes -= history.shift().attachment?.data.length ?? 0;
   writeJSON(historyFile, history);
   historyVersion += 1;
 }
+function persistHistory() { writeJSON(historyFile, history); historyVersion += 1; broadcast(); }
 function startPeer() {
   peer?.stop();
   peer = null;
@@ -72,7 +81,11 @@ function startPeer() {
     if (history.some((m) => m.id === message.id)) return;
     // Persist before acknowledging so a delivered message survives an app restart.
     remember(message, 'incoming');
-    latest = message; unread += 1;
+    if (message.throwDecision) {
+      const request = history.find((m) => m.id === message.throwDecision.requestId && m.direction === 'outgoing' && m.placement);
+      if (request?.throwState === 'pending') { request.throwState = message.throwDecision.accepted ? 'accepted' : 'rejected'; persistHistory(); }
+    }
+    latest = history[history.length - 1]; unread += 1;
     broadcast();
     if (!muted) { positionBubble(); bubble.showInactive(); pet.showInactive(); }
   });
@@ -101,12 +114,38 @@ function makeWindow(page, options) {
   win.loadFile(path.join(__dirname, '../ui', page));
   return win;
 }
-function handle(channel, fn) {
+function handle(channel, fn, allowed) {
   ipcMain.handle(channel, async (event, ...args) => {
-    if (![composer, pet, bubble].some((w) => w?.webContents === event.sender)) throw new Error('未知客户端');
-    try { return { ok: true, value: await fn(...args) }; }
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (![composer, pet, bubble, ...objects.keys(), ...pickerDisplays.keys()].includes(win) || (allowed && !allowed(win))) throw new Error('未知客户端');
+    try { return { ok: true, value: await fn(...args, win) }; }
     catch (error) { return { ok: false, error: error.message }; }
   });
+}
+function finishChoice(placement) {
+  if (!choice) return;
+  const resolve = choice; choice = null;
+  const windows = [...pickerDisplays.keys()]; pickerDisplays.clear();
+  for (const win of windows) win.close();
+  showComposer(); resolve(placement);
+}
+async function placeObject(message) {
+  if (objects.size >= 8) throw new Error('桌面上已有 8 个物件，请先关闭一个。');
+  const bounds = placedBounds(message.placement, displays(), { width: 300, height: 340 });
+  const win = makeWindow('object.html', { ...bounds, title: 'PetLink 桌面物件', frame: false, transparent: true,
+    hasShadow: false, resizable: false, alwaysOnTop: true, skipTaskbar: true, fullscreenable: false });
+  objects.set(win, message);
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  win.on('closed', () => objects.delete(win));
+  try {
+    await new Promise((resolve, reject) => {
+      win.webContents.once('did-finish-load', resolve);
+      win.webContents.once('did-fail-load', (_event, _code, description) => reject(new Error(description)));
+      win.once('closed', () => reject(new Error('桌面物件窗口已关闭。')));
+    });
+  } catch (error) { if (!win.isDestroyed()) win.close(); throw error; }
+  win.showInactive(); return win;
 }
 
 app.whenReady().then(() => {
@@ -125,7 +164,6 @@ app.whenReady().then(() => {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   }
   pet.on('move', positionBubble);
-  pet.on('moved', () => { config.position = pet.getBounds(); writeJSON(configFile, config); });
   if (config.position) {
     const { x, y } = config.position;
     if (Number.isFinite(x) && Number.isFinite(y)) {
@@ -151,6 +189,63 @@ app.whenReady().then(() => {
     { role: 'editMenu' }, { role: 'windowMenu' }
   ]));
   handle('get-state', state);
+  handle('drag-start', () => { dragOrigin = { bounds: pet.getBounds(), cursor: screen.getCursorScreenPoint() }; }, (w) => w === pet);
+  handle('drag-move', () => {
+    if (!dragOrigin) return;
+    const cursor = screen.getCursorScreenPoint();
+    pet.setPosition(Math.round(dragOrigin.bounds.x + cursor.x - dragOrigin.cursor.x),
+      Math.round(dragOrigin.bounds.y + cursor.y - dragOrigin.cursor.y));
+  }, (w) => w === pet);
+  handle('drag-end', () => {
+    if (!dragOrigin) return;
+    dragOrigin = null;
+    pet.setBounds(clampBounds(pet.getBounds(), screen.getDisplayMatching(pet.getBounds()).workArea));
+    config.position = pet.getBounds(); writeJSON(configFile, config);
+  }, (w) => w === pet);
+  handle('pick-target', () => {
+    if (choice) throw new Error('正在选择落点。');
+    composer.hide(); bubble.hide();
+    return new Promise((resolve) => {
+      choice = resolve;
+      for (const [index, display] of displays().entries()) {
+        const win = makeWindow('target.html', { ...display.workArea, title: 'PetLink 选择落点', frame: false, transparent: true,
+          resizable: false, hasShadow: false, alwaysOnTop: true, skipTaskbar: true, fullscreenable: false });
+        pickerDisplays.set(win, index + 1);
+        win.setAlwaysOnTop(true, 'screen-saver');
+        win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+        win.once('ready-to-show', () => { if (pickerDisplays.has(win)) { win.show(); win.focus(); } });
+        win.on('closed', () => { if (pickerDisplays.has(win)) finishChoice(null); });
+      }
+    });
+  }, (w) => w === composer);
+  handle('choose-target', (point, win) => finishChoice(validatePlacement({ ...point, display: pickerDisplays.get(win) })), (w) => pickerDisplays.has(w));
+  handle('cancel-target', () => finishChoice(null), (w) => pickerDisplays.has(w));
+  handle('get-object', (_value, win) => objects.get(win), (w) => objects.has(w));
+  handle('close-object', (_value, win) => win.close(), (w) => objects.has(w));
+  handle('object-height', (height, win) => {
+    if (!Number.isFinite(height)) return;
+    win.setBounds(placedBounds(objects.get(win).placement, displays(), { width: 300, height: Math.max(100, Math.min(420, Math.ceil(height))) }));
+  }, (w) => objects.has(w));
+  handle('respond-throw', async ({ requestId, accepted }) => {
+    if (typeof accepted !== 'boolean') throw new Error('请选择确认或拒绝。');
+    const request = history.find((m) => m.id === requestId && m.direction === 'incoming' && m.placement);
+    if (!request || request.throwState !== 'pending') throw new Error('这个请求已处理或不存在。');
+    if (Date.now() - request.sentAt > 5 * 60 * 1000) throw new Error('请求已过期，请让 TA 重新发送。');
+    request.throwState = 'processing';
+    const session = peer;
+    let win;
+    try {
+      if (accepted) win = await placeObject(request);
+      if (peer !== session || !history.includes(request)) throw new Error('配对已变化，这个请求已取消。');
+      request.throwState = accepted ? 'accepted' : 'rejected'; persistHistory();
+    } catch (error) { win?.close(); request.throwState = 'pending'; throw error; }
+    try {
+      const response = await session.send({ text: accepted ? `${config.name}接住了你甩来的东西 ♡` : `${config.name}拒绝了甩东西请求`,
+        throwDecision: { requestId, accepted } });
+      if (peer === session && history.includes(request)) { remember(response, 'outgoing'); broadcast(); }
+    } catch { return { accepted, notice: '本机已处理请求，但暂未通知到对方。' }; }
+    return { accepted };
+  }, (w) => w === composer || w === bubble);
   handle('configure', ({ name, invite, create }) => {
     if (config.peerPubkey) throw new Error('请先断开当前配对。');
     if (typeof name !== 'string' || !name.trim() || name.trim().length > 30) throw new Error('请输入 1–30 字的昵称。');
@@ -165,6 +260,8 @@ app.whenReady().then(() => {
   });
   handle('send', async (message) => {
     if (!peer) throw new Error('请先配对。');
+    if (message?.throwDecision) throw new Error('请通过收到的请求按钮确认。');
+    if (message?.placement && !peer.status.canThrow) throw new Error('对方版本还不支持甩东西，请双方更新到 0.2.0。');
     const session = peer;
     const sent = await session.send(message);
     if (peer === session) { remember(sent, 'outgoing'); broadcast(); }
@@ -197,10 +294,15 @@ app.whenReady().then(() => {
     peer?.stop(); peer = null;
     config.invite = null; config.peerPubkey = null; config.peerName = '';
     history = []; historyVersion += 1; latest = null; unread = 0; bubble.hide();
+    finishChoice(null); for (const win of objects.keys()) win.close();
     writeJSON(configFile, config); writeJSON(historyFile, history); broadcast(); return true;
   });
   powerMonitor.on('resume', startPeer);
-  screen.on('display-removed', () => { const a = screen.getPrimaryDisplay().workArea; pet.setPosition(a.x + a.width - 196, a.y + a.height - 190); });
+  screen.on('display-removed', () => {
+    finishChoice(null);
+    const a = screen.getPrimaryDisplay().workArea; pet.setPosition(a.x + a.width - 196, a.y + a.height - 190);
+    for (const [win, message] of objects) win.setBounds(placedBounds(message.placement, displays(), win.getBounds()));
+  });
   startPeer();
 });
 app.on('activate', () => composer && showComposer());

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { startRelay } = require('./relay.cjs');
+const { placedBounds } = require('../src/desktop.cjs');
 
 const root = path.resolve(__dirname, '..');
 const output = path.join(root, 'test-output');
@@ -24,9 +25,9 @@ async function launch(name) {
   await page.waitForFunction(() => !!window.petlink);
   return { app, page };
 }
-async function windowPage(app, filename) {
+async function windowPage(app, filename, previous = new Set()) {
   for (let i = 0; i < 100; i++) {
-    const page = app.windows().find(p => p.url().endsWith('/' + filename));
+    const page = app.windows().find(p => !p.isClosed() && !previous.has(p) && p.url().endsWith('/' + filename));
     if (page) { await page.waitForLoadState(); return page; }
     await new Promise(r => setTimeout(r, 50));
   }
@@ -48,6 +49,14 @@ async function send(page, text) {
     await page.screenshot({ path: path.join(output, 'send-error.png') });
   }
   assert.equal(await page.locator('#notice').isVisible(), false, await page.locator('#notice').textContent());
+}
+async function selectTarget(client) {
+  const previous = new Set(client.app.windows());
+  await client.page.locator('#pick-target').click();
+  const target = await windowPage(client.app, 'target.html', previous);
+  const size = await target.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  await target.mouse.click(Math.round(size.width * .3), Math.round(size.height * .28));
+  await client.page.locator('#target-label').getByText(/屏幕 \d+/).waitFor();
 }
 (async () => {
   relay = await startRelay();
@@ -118,6 +127,55 @@ async function send(page, text) {
   await bubble.locator('#content').getByText('欢迎回来！配对还在，不需要重新输入邀请码。').waitFor();
   await send(bob.page, '桌面上见 ♡');
   await alice.page.locator('#history').getByText('桌面上见 ♡').waitFor();
+  await selectTarget(alice);
+  await send(alice.page, '先问你：要接住这句话吗？');
+  await bubble.locator('#content .throw-actions').waitFor();
+  assert.equal(bob.app.windows().filter(p => p.url().endsWith('/object.html')).length, 0, 'nothing is placed before consent');
+  const request = (await bob.page.evaluate(() => window.petlink.call('get-state'))).history.findLast(m => m.placement);
+  const bobPet = await windowPage(bob.app, 'pet.html');
+  const blockedConsent = await bobPet.evaluate(async (requestId) => {
+    try { await window.petlink.call('respond-throw', { requestId, accepted: true }); return false; } catch { return true; }
+  }, request.id);
+  assert.equal(blockedConsent, true, 'pet renderer cannot bypass the consent UI');
+  await bubble.locator('.throw-actions').getByRole('button', { name: '拒绝', exact: true }).click();
+  await alice.page.locator(`[data-message-id="${request.id}"] .throw-status`).getByText('已拒绝').waitFor();
+  assert.equal(bob.app.windows().filter(p => p.url().endsWith('/object.html')).length, 0, 'rejection never places an object');
+  await selectTarget(alice);
+  await alice.page.locator('#file-input').setInputFiles(path.join(root, 'ui/icon.png'));
+  await alice.page.locator('#attachment-preview').waitFor({ state: 'visible' });
+  await send(alice.page, '接住一只小猫 ♡');
+  await bubble.locator('#content .throw-actions').waitFor();
+  const imageRequest = (await bob.page.evaluate(() => window.petlink.call('get-state'))).history.findLast(m => m.placement);
+  assert.equal(bob.app.windows().filter(p => p.url().endsWith('/object.html')).length, 0);
+  await bubble.screenshot({ path: path.join(output, 'throw-request.png'), omitBackground: true });
+  await bubble.locator('.throw-actions').getByRole('button', { name: '确认接住 ↗', exact: true }).click();
+  const object = await windowPage(bob.app, 'object.html');
+  await object.waitForFunction(() => document.querySelector('#object-content img')?.naturalWidth > 0);
+  await alice.page.locator(`[data-message-id="${imageRequest.id}"] .throw-status`).getByText('已确认接住 ✓').waitFor();
+  const objectWindow = await bob.app.browserWindow(object);
+  const bounds = await objectWindow.evaluate(win => win.getBounds());
+  const nativeDisplays = await bob.app.evaluate(({ screen }) => {
+    const primary = screen.getPrimaryDisplay().id;
+    return screen.getAllDisplays().sort((a, b) => (b.id === primary) - (a.id === primary) || a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y);
+  });
+  assert.deepEqual(bounds, placedBounds(imageRequest.placement, nativeDisplays, { width: bounds.width, height: bounds.height }));
+  assert.equal(await objectWindow.evaluate(win => win.isVisible()), true);
+  await object.screenshot({ path: path.join(output, 'desktop-throw.png'), omitBackground: true });
+  await object.locator('#close-object').click();
+  await bob.page.waitForTimeout(100);
+  assert.equal(bob.app.windows().filter(p => p.url().endsWith('/object.html')).length, 0);
+  await selectTarget(alice);
+  await send(alice.page, '再单独接住一句文字');
+  await bubble.locator('#content .throw-actions').waitFor();
+  const textRequest = (await bob.page.evaluate(() => window.petlink.call('get-state'))).history.findLast(m => m.placement);
+  await bubble.locator('.throw-actions').getByRole('button', { name: '确认接住 ↗', exact: true }).click();
+  const textObject = await windowPage(bob.app, 'object.html');
+  await textObject.locator('#object-content').getByText('再单独接住一句文字').waitFor();
+  const repeat = await bob.page.evaluate(async requestId => {
+    try { await window.petlink.call('respond-throw', { requestId, accepted: true }); return false; } catch { return true; }
+  }, textRequest.id);
+  assert.equal(repeat, true, 'one request may only be accepted once');
+  assert.equal(bob.app.windows().filter(p => p.url().endsWith('/object.html')).length, 1);
   await alice.page.screenshot({ path: path.join(output, 'conversation.png') });
   await bubble.screenshot({ path: path.join(output, 'message-bubble.png'), omitBackground: true });
   const petPage = await windowPage(bob.app, 'pet.html');
@@ -131,8 +189,9 @@ async function send(page, text) {
   fs.writeFileSync(path.join(root, 'ui/icon.png'), Buffer.from(icon, 'base64'));
   fs.writeFileSync(path.join(output, 'ui-result.json'), JSON.stringify({ passed: true,
     checks: ['UI pair and clipboard invite', 'real two-process relay delivery', 'pet bubble always on top', 'clickable link', 'blocked unsafe URL',
-      'image display', 'attachment save/readback', 'literal HTML message', 'dismiss', 'mute', 'restart retains pair/history', 'restart replay dedup', 'bidirectional reply'] }, null, 2));
-  console.log('PASS: two Mac Electron clients, pairing, text/link/image, bubble, file save, literal HTML, mute and restart.');
+      'image display', 'attachment save/readback', 'literal HTML message', 'dismiss', 'mute', 'restart retains pair/history', 'restart replay dedup', 'bidirectional reply',
+      'desktop target picker', 'no placement before consent', 'reject request', 'consent IPC restricted', 'accept image at mapped coordinates', 'close desktop object', 'accept text once'] }, null, 2));
+  console.log('PASS: two Mac clients, pairing, chat, restart, desktop target selection, confirmed image/text placement and rejection.');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   for (const app of apps) await app.close().catch(() => {});
   if (relay) await relay.close();

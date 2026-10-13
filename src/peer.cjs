@@ -42,6 +42,12 @@ function parseInvite(value) {
     return { secret: parsed.secret, hostPubkey: parsed.hostPubkey, topic: topicFor(parsed.secret) };
   } catch { throw new Error('邀请无效，请复制完整的 PL1 邀请码'); }
 }
+function validatePlacement(value) {
+  if (!value || !Number.isInteger(value.display) || value.display < 1 || value.display > 16 ||
+      !Number.isFinite(value.x) || value.x < 0 || value.x > 1 || !Number.isFinite(value.y) || value.y < 0 || value.y > 1)
+    throw new Error('落点无效，请重新选择屏幕位置');
+  return { display: value.display, x: value.x, y: value.y };
+}
 function validateMessage(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('消息格式无效');
   const text = input.text ?? '';
@@ -56,7 +62,18 @@ function validateMessage(input) {
     if (!bytes.length || bytes.length > MAX_FILE || bytes.toString('base64') !== a.data) throw new Error('附件格式无效，最大 5 MiB');
     out.attachment = { name: a.name, mime: a.mime, data: a.data };
   }
-  if (!text.trim() && !out.attachment) throw new Error('请输入文字或添加附件');
+  if (input.placement !== undefined) {
+    out.placement = validatePlacement(input.placement);
+    if (out.attachment && !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(out.attachment.mime))
+      throw new Error('甩东西目前支持文字和 PNG / JPEG / WebP / GIF 图片');
+  }
+  if (input.throwDecision !== undefined) {
+    const d = input.throwDecision;
+    if (!d || typeof d.requestId !== 'string' || !UUID.test(d.requestId) || typeof d.accepted !== 'boolean' ||
+        out.placement || out.attachment) throw new Error('甩东西确认消息无效');
+    out.throwDecision = { requestId: d.requestId, accepted: d.accepted };
+  }
+  if (!text.trim() && !out.attachment && !out.throwDecision) throw new Error('请输入文字或添加附件');
   if (input.id != null) {
     if (typeof input.id !== 'string' || !UUID.test(input.id)) throw new Error('消息 ID 无效');
     out.id = input.id;
@@ -89,6 +106,7 @@ class Peer extends EventEmitter {
     this.peerPubkey = peerPubkey || (identity.pubkey === this.invite.hostPubkey ? null : this.invite.hostPubkey);
     if (identity.pubkey !== this.invite.hostPubkey && this.peerPubkey !== this.invite.hostPubkey) throw new Error('好友身份与邀请不匹配');
     this.peerName = '';
+    this.peerCanThrow = false;
     this.lastSeen = 0;
     this.running = false;
     this.sockets = new Map();
@@ -109,7 +127,7 @@ class Peer extends EventEmitter {
     const relayConnected = [...this.sockets.values()].filter(ws => ws.readyState === WebSocket.OPEN).length;
     return { relayConnected,
       peerOnline: this.running && relayConnected > 0 && Date.now() - this.lastSeen < STALE_MS && this.lastSeen > 0,
-      paired: !!this.peerPubkey, peerName: this.peerName, peerPubkey: this.peerPubkey };
+      paired: !!this.peerPubkey, peerName: this.peerName, peerPubkey: this.peerPubkey, canThrow: this.peerCanThrow };
   }
   start() {
     if (this.running) return;
@@ -179,7 +197,7 @@ class Peer extends EventEmitter {
   }
   hello() {
     if (!this.running || !this.status.relayConnected) return;
-    this.publish({ type: 'hello', name: this.name, target: this.peerPubkey, at: Date.now() }, 'hello').catch(error => this.fail(error));
+    this.publish({ type: 'hello', name: this.name, target: this.peerPubkey, features: ['throw-v1'], at: Date.now() }, 'hello').catch(error => this.fail(error));
   }
   publish(packet, mode = 'pair', deadline = Infinity) {
     const run = async () => {
@@ -255,6 +273,7 @@ class Peer extends EventEmitter {
           this.hello();
         }
         this.peerName = packet.name;
+        this.peerCanThrow = Array.isArray(packet.features) && packet.features.includes('throw-v1');
         // Presence is proved by a fresh challenge response, so replayed hello cannot mark a peer online.
         if (this.challenges.size < 8) {
           const challenge = randomUUID();
@@ -325,4 +344,4 @@ class Peer extends EventEmitter {
     return result;
   }
 }
-module.exports = { Peer, createIdentity, createInvite, parseInvite, validateMessage, DEFAULT_RELAYS };
+module.exports = { Peer, createIdentity, createInvite, parseInvite, validateMessage, validatePlacement, DEFAULT_RELAYS };

@@ -1,7 +1,7 @@
 {
   "name": "petlink-mac",
   "productName": "PetLink",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Send a little company to a friend's desktop.",
   "license": "MIT",
